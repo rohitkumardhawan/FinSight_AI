@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, AlertCircle, Menu, X, Loader2, Upload, Database, Globe, Scale } from 'lucide-react';
+import { Search, Menu, X, Loader2, Upload, Database, Globe, Scale } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 import { normalizeExchange, formatPerShare } from '@/lib/formatters';
 
@@ -58,11 +58,50 @@ export const Header: React.FC<HeaderProps> = ({
   const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [marketIndices, setMarketIndices] = useState<MarketIndexQuote[]>(DEFAULT_INDICES);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+  const searchInputRef = useRef<HTMLInputElement>(null);
 
   // Reset selectedIndex to 0 when results update
   useEffect(() => {
     setSelectedIndex(0);
   }, [results]);
+
+  // Keyboard shortcut: Pressing '/' or 'Cmd+K' / 'Ctrl+K' focuses search
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeTag = document.activeElement?.tagName;
+      const isInputActive = activeTag === 'INPUT' || activeTag === 'TEXTAREA';
+
+      if (e.key === '/' && !isInputActive) {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        setSearchOpen(true);
+        if (recentCompanies.length === 0) {
+          loadRecentCompanies();
+        }
+      } else if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+        e.preventDefault();
+        searchInputRef.current?.focus();
+        setSearchOpen(true);
+        if (recentCompanies.length === 0) {
+          loadRecentCompanies();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [recentCompanies]);
+
+  // Close search dropdown on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (searchContainerRef.current && !searchContainerRef.current.contains(e.target as Node)) {
+        setSearchOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => document.removeEventListener('mousedown', handleClickOutside);
+  }, []);
 
   // 0. Live Market Indices Polling (NIFTY 50, S&P 500, NASDAQ)
   useEffect(() => {
@@ -76,7 +115,7 @@ export const Header: React.FC<HeaderProps> = ({
             setMarketIndices(json.indices);
           }
         }
-      } catch (err) {
+      } catch {
         // Graceful silent fallback to default benchmarks
       }
     };
@@ -104,14 +143,14 @@ export const Header: React.FC<HeaderProps> = ({
           is_cached: true,
           data_source: c.data_source || 'neon_db',
           price: c.price,
-          change_percent: c.change_percent
+          change_percent: c.change_percent,
         }));
         setRecentCompanies(mapped);
         if (!searchTerm.trim()) {
           setResults(mapped);
         }
       }
-    } catch (err) {
+    } catch {
       // Gracefully silent if backend starting up
     }
   };
@@ -166,85 +205,123 @@ export const Header: React.FC<HeaderProps> = ({
     onSelectTicker(sym);
     setSearchOpen(false);
     setSearchTerm('');
-    // Navigate cleanly
     try {
       router.push(`/company/${encodeURIComponent(sym)}`);
-    } catch {
-      // Stay on page
-    }
+    } catch {}
   };
 
   return (
-    <header className="h-16 bg-navy-900 border-b border-navy-800 px-4 sm:px-6 flex items-center justify-between sticky top-0 z-30">
-      {/* Mobile Menu Toggle & Search Bar */}
-      <div className="flex items-center gap-3" ref={searchContainerRef}>
-        {onToggleMobileMenu && (
-          <button
-            onClick={onToggleMobileMenu}
-            aria-label="Toggle Navigation Menu"
-            className="lg:hidden p-1.5 rounded-lg bg-navy-800 text-slate-300 hover:text-white border border-navy-700"
-          >
-            {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
-          </button>
-        )}
+    <div className="sticky top-0 z-30 flex flex-col w-full">
+      {/* TIER 1: Slim Institutional Market Tape (h-8, bg-[#06080B], border-b border-white/[0.06]) */}
+      <div className="h-8 bg-[#06080B] border-b border-white/[0.06] px-4 sm:px-6 flex items-center justify-between text-xs select-none">
+        <div className="flex items-center gap-4 sm:gap-6 overflow-x-auto no-scrollbar py-0.5">
+          {marketIndices.map((idx) => {
+            const isPos = idx.change_pct >= 0;
+            return (
+              <div key={idx.symbol} className="flex items-center gap-2 whitespace-nowrap text-[11px]">
+                <span className="text-slate-400 font-medium tracking-tight">{idx.name}</span>
+                <span className="font-mono text-slate-200 tabular-nums">
+                  {idx.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
+                </span>
+                <span
+                  className={`inline-flex items-center px-1.5 py-0.2 rounded text-[10px] font-mono font-medium tabular-nums ${
+                    isPos
+                      ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20'
+                      : 'text-rose-400 bg-rose-500/10 border border-rose-500/20'
+                  }`}
+                >
+                  {isPos ? '+' : ''}
+                  {idx.change_pct.toFixed(2)}%
+                </span>
+              </div>
+            );
+          })}
+        </div>
 
-        <div className="relative w-64 sm:w-96">
-          <div className="relative">
-            <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-slate-400" />
-            <input
-              type="text"
-              value={searchTerm}
-              onFocus={() => {
-                setSearchOpen(true);
-                if (recentCompanies.length === 0) {
-                  loadRecentCompanies();
-                }
-              }}
-              onChange={(e) => setSearchTerm(e.target.value)}
-              onKeyDown={(e) => {
-                if (e.key === 'ArrowDown') {
-                  e.preventDefault();
-                  if (!searchOpen) {
-                    setSearchOpen(true);
-                  } else if (results.length > 0) {
-                    setSelectedIndex((prev) => (prev + 1) % results.length);
+        {/* Live indicator on far right */}
+        <div className="hidden sm:flex items-center gap-1.5 text-[10px] font-mono text-slate-400 pl-4 border-l border-white/[0.06] flex-shrink-0">
+          <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-emerald-400 font-semibold uppercase tracking-wider">Live Markets</span>
+        </div>
+      </div>
+
+      {/* TIER 2: Main Command Bar (h-14, bg-[#090B0F]/95 backdrop-blur-md) */}
+      <header className="h-14 bg-[#090B0F]/95 backdrop-blur-md border-b border-white/[0.06] px-4 sm:px-6 flex items-center justify-between">
+        {/* Left: Mobile Toggle & Wide Spotlight Search */}
+        <div className="flex items-center gap-3 flex-1 min-w-0 pr-4" ref={searchContainerRef}>
+          {onToggleMobileMenu && (
+            <button
+              onClick={onToggleMobileMenu}
+              aria-label="Toggle Navigation Menu"
+              className="lg:hidden p-1.5 rounded-md text-slate-400 hover:text-white hover:bg-white/[0.04] border border-white/[0.08] transition-colors"
+            >
+              {isMobileMenuOpen ? <X className="h-4 w-4" /> : <Menu className="h-4 w-4" />}
+            </button>
+          )}
+
+          {/* Wide Spotlight Search Input */}
+          <div className="relative w-full max-w-md sm:max-w-lg">
+            <div className="relative flex items-center">
+              <Search className="absolute left-3 h-3.5 w-3.5 text-slate-400 pointer-events-none" />
+              <input
+                ref={searchInputRef}
+                type="text"
+                value={searchTerm}
+                onFocus={() => {
+                  setSearchOpen(true);
+                  if (recentCompanies.length === 0) {
+                    loadRecentCompanies();
                   }
-                } else if (e.key === 'ArrowUp') {
-                  e.preventDefault();
-                  if (!searchOpen) {
-                    setSearchOpen(true);
-                  } else if (results.length > 0) {
-                    setSelectedIndex((prev) => (prev - 1 + results.length) % results.length);
-                  }
-                } else if (e.key === 'Enter') {
-                  if (results.length > 0 && searchOpen) {
+                }}
+                onChange={(e) => setSearchTerm(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'ArrowDown') {
                     e.preventDefault();
-                    const target = results[selectedIndex >= 0 && selectedIndex < results.length ? selectedIndex : 0];
-                    if (target) handleSelect(target);
+                    if (!searchOpen) {
+                      setSearchOpen(true);
+                    } else if (results.length > 0) {
+                      setSelectedIndex((prev) => (prev + 1) % results.length);
+                    }
+                  } else if (e.key === 'ArrowUp') {
+                    e.preventDefault();
+                    if (!searchOpen) {
+                      setSearchOpen(true);
+                    } else if (results.length > 0) {
+                      setSelectedIndex((prev) => (prev - 1 + results.length) % results.length);
+                    }
+                  } else if (e.key === 'Enter') {
+                    if (results.length > 0 && searchOpen) {
+                      e.preventDefault();
+                      const target = results[selectedIndex >= 0 && selectedIndex < results.length ? selectedIndex : 0];
+                      if (target) handleSelect(target);
+                    }
+                  } else if (e.key === 'Escape') {
+                    setSearchOpen(false);
+                    searchInputRef.current?.blur();
                   }
-                } else if (e.key === 'Escape') {
-                  setSearchOpen(false);
-                }
-              }}
-              placeholder={`Search Indian (NSE/BSE) or Global company/ticker...`}
-              className="w-full bg-navy-950 border border-navy-700 rounded-lg pl-9 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-gold-500/50 focus:ring-1 focus:ring-gold-500/30 transition-all"
-            />
-            {isSearching && (
-              <Loader2 className="absolute right-2.5 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-gold-400 animate-spin" />
-            )}
-          </div>
-
-          {/* Dropdown Results */}
-          {searchOpen && (
-            <>
-              <div
-                className="fixed inset-0 z-40"
-                onClick={() => setSearchOpen(false)}
+                }}
+                placeholder="Search Indian (NSE/BSE) or Global equities (e.g. ASIANPAINT, AAPL)..."
+                className="w-full bg-[#11141B] border border-white/[0.08] hover:border-white/[0.14] focus:border-sky-500/60 focus:ring-1 focus:ring-sky-500/30 rounded-lg pl-9 pr-14 py-2 text-xs text-white placeholder-slate-500 transition-all font-sans"
               />
-              <div className="absolute left-0 mt-1.5 w-full sm:w-[420px] bg-navy-900 border border-navy-700 rounded-xl shadow-2xl z-50 overflow-hidden py-1 max-h-80 overflow-y-auto">
-                <div className="px-3.5 py-2 text-[10px] uppercase tracking-wider text-slate-400 font-semibold border-b border-navy-800 flex justify-between items-center bg-navy-950/70">
-                  <span>{searchTerm.trim().length >= 2 ? 'Global & Indian Equities' : 'Recent & Cached Companies'}</span>
-                  <span className="text-emerald-400 font-mono text-[9px] flex items-center gap-1">
+
+              {/* Right Shortcut Badge / Loader */}
+              <div className="absolute right-2.5 flex items-center gap-1 pointer-events-none">
+                {isSearching ? (
+                  <Loader2 className="h-3.5 w-3.5 text-sky-400 animate-spin" />
+                ) : (
+                  <kbd className="hidden sm:inline-flex items-center px-1.5 py-0.5 text-[10px] font-mono font-medium text-slate-400 bg-white/[0.04] border border-white/[0.08] rounded">
+                    /
+                  </kbd>
+                )}
+              </div>
+            </div>
+
+            {/* Dropdown Results */}
+            {searchOpen && (
+              <div className="absolute left-0 mt-2 w-full sm:w-[460px] bg-[#11141B] border border-white/[0.1] rounded-xl shadow-2xl z-50 overflow-hidden py-1 max-h-84 overflow-y-auto backdrop-blur-xl">
+                <div className="px-3.5 py-2 text-[10px] uppercase tracking-wider text-slate-400 font-semibold border-b border-white/[0.06] flex justify-between items-center bg-[#0C0E14]">
+                  <span>{searchTerm.trim().length >= 2 ? 'Global & Indian Equities' : 'Recent & Cached Universe'}</span>
+                  <span className="text-sky-400 font-mono text-[9px] flex items-center gap-1">
                     <Globe className="h-2.5 w-2.5" /> LIVE SEARCH
                   </span>
                 </div>
@@ -255,23 +332,23 @@ export const Header: React.FC<HeaderProps> = ({
                     const isHighlighted = idx === selectedIndex;
                     const exch = normalizeExchange(item.exchange, item.symbol);
                     const isIndian = exch === 'NSE' || exch === 'BSE';
-                    
+
                     return (
                       <button
                         key={`${item.symbol}-${item.exchange}`}
                         onClick={() => handleSelect(item)}
                         onMouseEnter={() => setSelectedIndex(idx)}
-                        className={`w-full px-3.5 py-2.5 flex items-center justify-between text-left text-xs transition-colors border-b border-navy-800/40 last:border-0 ${
+                        className={`w-full px-3.5 py-2.5 flex items-center justify-between text-left text-xs transition-colors border-b border-white/[0.03] last:border-0 ${
                           isHighlighted
-                            ? 'bg-navy-800 text-gold-300 ring-1 ring-gold-500/30'
+                            ? 'bg-white/[0.06] text-white'
                             : isSelected
-                            ? 'bg-navy-850/80 text-gold-400'
-                            : 'text-slate-300 hover:bg-navy-800/60'
+                            ? 'bg-sky-500/10 text-sky-300'
+                            : 'text-slate-300 hover:bg-white/[0.03]'
                         }`}
                       >
                         <div className="pr-2 min-w-0 flex-1">
                           <div className="flex items-center gap-2 mb-0.5">
-                            <span className="font-semibold text-white truncate max-w-[220px]">
+                            <span className="font-semibold text-white truncate max-w-[240px]">
                               {item.name}
                             </span>
                             {item.is_cached && (
@@ -281,16 +358,23 @@ export const Header: React.FC<HeaderProps> = ({
                             )}
                           </div>
                           <div className="flex items-center gap-2 text-[10px] text-slate-400 font-mono">
-                            <span className="font-bold text-gold-400/90">{item.symbol}</span>
+                            <span className="font-bold text-sky-400">{item.symbol}</span>
                             <span>•</span>
-                            <span className="truncate max-w-[120px]">{item.sector || 'General'}</span>
+                            <span className="truncate max-w-[130px]">{item.sector || 'General'}</span>
                             {item.price !== undefined && item.price !== null && (
                               <>
                                 <span>•</span>
-                                <span className="text-white font-semibold">{formatPerShare(item.price, item.currency)}</span>
+                                <span className="text-white font-semibold tabular-nums">
+                                  {formatPerShare(item.price, item.currency)}
+                                </span>
                                 {item.change_percent !== undefined && item.change_percent !== null && (
-                                  <span className={item.change_percent >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
-                                    ({item.change_percent >= 0 ? '+' : ''}{Number(item.change_percent).toFixed(2)}%)
+                                  <span
+                                    className={`tabular-nums ${
+                                      item.change_percent >= 0 ? 'text-emerald-400' : 'text-rose-400'
+                                    }`}
+                                  >
+                                    ({item.change_percent >= 0 ? '+' : ''}
+                                    {Number(item.change_percent).toFixed(2)}%)
                                   </span>
                                 )}
                               </>
@@ -301,11 +385,11 @@ export const Header: React.FC<HeaderProps> = ({
                         {/* Exchange Badge */}
                         <div className="flex-shrink-0">
                           <span
-                            className={`px-2 py-0.5 text-[10px] font-bold rounded tracking-wider ${
+                            className={`px-2 py-0.5 text-[10px] font-mono font-bold rounded tracking-wider ${
                               isIndian
                                 ? 'bg-orange-500/15 text-orange-400 border border-orange-500/30'
                                 : exch === 'NASDAQ'
-                                ? 'bg-cyan-500/15 text-cyan-400 border border-cyan-500/30'
+                                ? 'bg-sky-500/15 text-sky-400 border border-sky-500/30'
                                 : exch === 'NYSE'
                                 ? 'bg-blue-500/15 text-blue-400 border border-blue-500/30'
                                 : 'bg-slate-700/40 text-slate-300 border border-slate-600/30'
@@ -320,7 +404,7 @@ export const Header: React.FC<HeaderProps> = ({
                 ) : (
                   <div className="px-4 py-6 text-xs text-slate-400 text-center">
                     {isSearching ? (
-                      <div className="flex items-center justify-center gap-2 text-gold-400">
+                      <div className="flex items-center justify-center gap-2 text-sky-400">
                         <Loader2 className="h-4 w-4 animate-spin" />
                         <span>Searching global financial markets...</span>
                       </div>
@@ -330,70 +414,48 @@ export const Header: React.FC<HeaderProps> = ({
                   </div>
                 )}
               </div>
-            </>
-          )}
+            )}
+          </div>
         </div>
 
-        {/* Compare Equities Button */}
-        <button
-          onClick={() => {
-            router.push(`/compare?a=${encodeURIComponent(currentTicker)}&b=BERGEPAINT.NS`);
-          }}
-          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-navy-800 hover:bg-navy-750 text-slate-200 border border-navy-700 hover:border-gold-500/40 text-xs font-medium transition-all shadow-sm"
-          title="Side-by-side equity comparison"
-        >
-          <Scale className="h-3.5 w-3.5 text-gold-400" />
-          <span>Compare</span>
-        </button>
-
-        {/* Optional Import CSV Button */}
-        {onOpenImportCsv && (
+        {/* Right Actions: Compare & Import CSV & Terminal Status */}
+        <div className="flex items-center gap-2.5 sm:gap-3 flex-shrink-0">
+          {/* Compare Equities Button */}
           <button
-            onClick={onOpenImportCsv}
-            className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-navy-800 hover:bg-navy-750 text-slate-200 border border-navy-700 hover:border-gold-500/40 text-xs font-medium transition-all shadow-sm"
-            title="Import Screener.in or FinSight CSV statement"
+            onClick={() => {
+              router.push(`/compare?a=${encodeURIComponent(currentTicker)}&b=BERGEPAINT.NS`);
+            }}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.08] text-xs font-medium transition-all shadow-sm"
+            title="Side-by-side equity comparison"
           >
-            <Upload className="h-3.5 w-3.5 text-gold-400" />
-            <span>Import CSV</span>
+            <Scale className="h-3.5 w-3.5 text-sky-400" />
+            <span className="hidden sm:inline">Compare</span>
           </button>
-        )}
-      </div>
 
-      {/* Center Market Pulse (Hidden on mobile/laptop < 1440px to ensure status badge never clips at 1280px) */}
-      <div className="hidden 2xl:flex items-center gap-5 text-xs text-slate-400 flex-shrink">
-        {marketIndices.map((idx) => {
-          const isPos = idx.change_pct >= 0;
-          return (
-            <div key={idx.symbol} className="flex items-center gap-1.5 whitespace-nowrap">
-              <span className="text-slate-400 font-medium">{idx.name}</span>
-              <span className={`font-semibold font-mono ${isPos ? 'text-emerald-400' : 'text-rose-400'}`}>
-                {idx.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
-                ({isPos ? '+' : ''}{idx.change_pct.toFixed(2)}%)
-              </span>
+          {/* Import CSV Button */}
+          {onOpenImportCsv && (
+            <button
+              onClick={onOpenImportCsv}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.08] text-xs font-medium transition-all shadow-sm"
+              title="Import Screener.in or FinSight CSV statement"
+            >
+              <Upload className="h-3.5 w-3.5 text-emerald-400" />
+              <span className="hidden sm:inline">Import CSV</span>
+            </button>
+          )}
+
+          {/* Clean Terminal Pill */}
+          <div className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-white/[0.06] flex-shrink-0">
+            <div className="h-7 w-7 rounded-md bg-white/[0.04] border border-white/[0.08] flex items-center justify-center text-sky-400 font-mono font-bold text-xs shadow-inner">
+              FS
             </div>
-          );
-        })}
-      </div>
-
-      {/* Right Actions & Status Badges */}
-      <div className="flex items-center gap-2.5 sm:gap-3 flex-shrink-0 whitespace-nowrap">
-        {/* Live Neon & FastAPI Engine Indicator */}
-        <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] sm:text-[11px] font-semibold tracking-wide flex-shrink-0">
-          <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
-          <span>NEON PGVECTOR LIVE</span>
-        </div>
-
-        {/* User Pill */}
-        <div className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-navy-800 flex-shrink-0">
-          <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-navy-700 to-navy-600 border border-navy-600 flex items-center justify-center text-gold-accent font-semibold text-xs shadow-inner">
-            FS
-          </div>
-          <div className="hidden sm:block text-left">
-            <div className="text-xs font-semibold text-white leading-tight">Analyst Desk</div>
-            <div className="text-[10px] text-slate-400">Phase 4 · Institutional Ready</div>
+            <div className="hidden md:block text-left">
+              <div className="text-xs font-medium text-slate-200 leading-tight">Terminal</div>
+              <div className="text-[10px] text-slate-400 font-mono">Institutional</div>
+            </div>
           </div>
         </div>
-      </div>
-    </header>
+      </header>
+    </div>
   );
 };

@@ -2,14 +2,14 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { 
-  LayoutDashboard, 
-  Building2, 
-  FileSpreadsheet, 
-  Percent, 
-  Calculator, 
-  BrainCircuit, 
-  ShieldAlert, 
+import {
+  LayoutDashboard,
+  Building2,
+  FileSpreadsheet,
+  Percent,
+  Calculator,
+  BrainCircuit,
+  ShieldAlert,
   FileText,
   TrendingUp,
   Scale,
@@ -113,30 +113,27 @@ export const Sidebar: React.FC<SidebarProps> = ({
       {/* Mobile & Tablet Backdrop (< 1024px) */}
       {isOpenOnMobile && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 lg:hidden"
+          className="fixed inset-0 bg-black/70 backdrop-blur-sm z-30 lg:hidden"
           onClick={onCloseMobile}
         />
       )}
 
       <aside
-        className={`fixed lg:static inset-y-0 left-0 z-40 w-64 bg-navy-900 border-r border-navy-800 flex flex-col flex-shrink-0 min-h-screen transition-transform duration-300 ease-in-out ${
+        className={`fixed lg:static inset-y-0 left-0 z-40 w-60 bg-[#0B0E14] border-r border-white/[0.06] flex flex-col flex-shrink-0 min-h-screen transition-transform duration-300 ease-in-out ${
           isOpenOnMobile ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
         {/* Brand Header */}
-        <div className="p-5 border-b border-navy-800 flex items-center justify-between">
+        <div className="h-14 px-4 border-b border-white/[0.06] flex items-center justify-between">
           <div className="flex items-center gap-2.5">
-            <div className="h-9 w-9 rounded-lg bg-gradient-to-br from-gold-500/20 to-gold-accent/10 border border-gold-500/30 flex items-center justify-center text-gold-accent shadow-sm">
-              <TrendingUp className="h-5 w-5 text-gold-accent" />
+            <div className="h-7 w-7 rounded-md bg-sky-500/10 border border-sky-500/20 flex items-center justify-center text-sky-400">
+              <TrendingUp className="h-4 w-4" />
             </div>
-            <div>
-              <div className="flex items-center gap-1.5">
-                <span className="font-bold text-lg tracking-tight text-white">FinSight</span>
-                <span className="font-semibold text-xs px-1.5 py-0.5 rounded bg-gold-500/10 text-gold-400 border border-gold-500/30">AI</span>
-              </div>
-              <p className="text-[10px] text-slate-400 tracking-tight leading-tight mt-0.5">
-                Equity Research & Intelligence
-              </p>
+            <div className="flex items-center gap-1.5">
+              <span className="font-bold text-sm tracking-tight text-white">FinSight</span>
+              <span className="text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">
+                AI
+              </span>
             </div>
           </div>
 
@@ -144,17 +141,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
           {onCloseMobile && (
             <button
               onClick={onCloseMobile}
-              className="lg:hidden p-1 text-slate-400 hover:text-white"
+              className="lg:hidden p-1 rounded text-slate-400 hover:text-white hover:bg-white/[0.05]"
             >
-              <X className="h-5 w-5" />
+              <X className="h-4 w-4" />
             </button>
           )}
         </div>
 
         {/* Navigation List */}
-        <nav className="flex-1 p-3 space-y-1 overflow-y-auto">
-          <div className="px-3 py-2 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
-            Institutional Cockpit
+        <nav className="flex-1 p-2 space-y-0.5 overflow-y-auto">
+          <div className="px-2.5 py-2 text-[10px] font-mono font-semibold tracking-wider text-slate-400 uppercase">
+            Terminal Views
           </div>
           {NAV_ITEMS.map((item) => {
             const Icon = item.icon;
@@ -164,6 +161,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
               (item.id === 'risk' && activeSection === 'risk-intelligence') ||
               (item.id === 'reports' && activeSection === 'research-reports') ||
               (item.id === 'compare' && activeSection === 'compare');
+
             return (
               <button
                 key={item.id}
@@ -171,26 +169,26 @@ export const Sidebar: React.FC<SidebarProps> = ({
                   onSelectSection(item.id);
                   if (onCloseMobile) onCloseMobile();
                 }}
-                className={`w-full flex items-center justify-between px-3 py-2.5 rounded-lg text-xs font-medium transition-all group ${
+                className={`w-full flex items-center justify-between px-2.5 py-2 text-xs font-medium transition-all group ${
                   isActive
-                    ? 'bg-navy-800 text-gold-400 border border-gold-500/30 shadow-sm shadow-gold-glow'
-                    : 'text-slate-300 hover:bg-navy-850 hover:text-white border border-transparent'
+                    ? 'border-l-2 border-sky-400 bg-white/[0.04] text-white rounded-r-lg font-semibold'
+                    : 'border-l-2 border-transparent text-slate-400 hover:text-slate-200 hover:bg-white/[0.02] rounded-lg'
                 }`}
               >
-                <div className="flex items-center gap-3">
+                <div className="flex items-center gap-2.5 min-w-0">
                   <Icon
-                    className={`h-4 w-4 transition-colors ${
-                      isActive ? 'text-gold-accent' : 'text-slate-400 group-hover:text-slate-200'
+                    className={`h-4 w-4 flex-shrink-0 transition-colors ${
+                      isActive ? 'text-sky-400' : 'text-slate-500 group-hover:text-slate-300'
                     }`}
                   />
                   <span className="truncate">{item.name}</span>
                 </div>
-                {item.isReady ? (
-                  <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 shadow-sm shadow-emerald-400/50"></span>
-                ) : (
-                  <span className="text-[9px] uppercase px-1.5 py-0.5 rounded bg-navy-800 text-slate-400 border border-navy-700">
-                    Phase 5
-                  </span>
+                {item.isReady && (
+                  <span
+                    className={`h-1.5 w-1.5 rounded-full ${
+                      isActive ? 'bg-sky-400' : 'bg-emerald-400/80'
+                    }`}
+                  />
                 )}
               </button>
             );
@@ -198,21 +196,21 @@ export const Sidebar: React.FC<SidebarProps> = ({
         </nav>
 
         {/* Personal Watchlist Section */}
-        <div className="p-3 border-t border-navy-800 bg-navy-950/20">
-          <div className="flex items-center justify-between px-2 mb-2">
-            <div className="flex items-center gap-1.5 text-[11px] font-semibold tracking-wider text-slate-400 uppercase">
-              <Star className="h-3 w-3 text-gold-400 fill-gold-400" />
+        <div className="p-3 border-t border-white/[0.06] bg-[#080A0F]">
+          <div className="flex items-center justify-between px-1 mb-2">
+            <div className="flex items-center gap-1.5 text-[10px] font-mono font-semibold tracking-wider text-slate-400 uppercase">
+              <Star className="h-3 w-3 text-sky-400 fill-sky-400" />
               <span>Watchlist</span>
             </div>
-            <span className="text-[10px] font-mono text-slate-400 bg-navy-800 border border-navy-700 px-1.5 py-0.2 rounded">
+            <span className="text-[10px] font-mono text-slate-400 bg-white/[0.04] border border-white/[0.08] px-1.5 py-0.2 rounded">
               {watchlist.length}
             </span>
           </div>
 
-          <div className="space-y-1 max-h-40 overflow-y-auto pr-1">
+          <div className="space-y-1 max-h-36 overflow-y-auto pr-1">
             {watchlist.length === 0 ? (
-              <div className="px-2 py-2 text-[11px] text-slate-500 italic">
-                No starred tickers yet. Click ★ to add.
+              <div className="px-1 py-1.5 text-[11px] text-slate-500 italic">
+                No starred tickers. Click ★ to add.
               </div>
             ) : (
               watchlist.map((itemTicker) => {
@@ -220,16 +218,16 @@ export const Sidebar: React.FC<SidebarProps> = ({
                 return (
                   <div
                     key={itemTicker}
-                    className={`group flex items-center justify-between px-2.5 py-1.5 rounded-lg text-xs transition-colors cursor-pointer ${
+                    className={`group flex items-center justify-between px-2 py-1.5 rounded-md text-xs transition-colors cursor-pointer ${
                       isCurrent
-                        ? 'bg-navy-800 text-gold-400 font-semibold border border-gold-500/20'
-                        : 'text-slate-300 hover:bg-navy-850 hover:text-white'
+                        ? 'bg-white/[0.05] text-sky-400 font-semibold border border-white/[0.08]'
+                        : 'text-slate-400 hover:bg-white/[0.02] hover:text-slate-200'
                     }`}
                   >
                     <button
                       type="button"
                       onClick={() => handleSwitchTicker(itemTicker)}
-                      className="flex-1 text-left truncate font-mono text-[11px]"
+                      className="flex-1 text-left truncate font-mono text-[11px] tabular-nums"
                       title={`Switch to ${itemTicker}`}
                     >
                       {itemTicker}
@@ -237,7 +235,7 @@ export const Sidebar: React.FC<SidebarProps> = ({
                     <button
                       type="button"
                       onClick={(e) => handleRemoveFromWatchlist(e, itemTicker)}
-                      className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-400 hover:text-rose-400 transition-opacity ml-1"
+                      className="opacity-0 group-hover:opacity-100 p-0.5 text-slate-500 hover:text-rose-400 transition-opacity ml-1"
                       title="Remove from watchlist"
                     >
                       <X className="h-3 w-3" />
@@ -249,19 +247,13 @@ export const Sidebar: React.FC<SidebarProps> = ({
           </div>
         </div>
 
-        {/* System Status Footer */}
-        <div className="p-4 border-t border-navy-800 bg-navy-950/40">
-          <div className="flex items-center justify-between text-[11px] text-slate-400 mb-2">
-            <span>Engine Status</span>
-            <span className="flex items-center gap-1.5 text-emerald-400 font-medium">
-              <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse"></span>
-              Online
-            </span>
+        {/* Minimal Footer */}
+        <div className="p-3.5 border-t border-white/[0.06] bg-[#07090D] flex items-center justify-between text-xs">
+          <div className="flex items-center gap-2">
+            <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+            <span className="text-[11px] font-medium text-slate-300">FinSight AI</span>
           </div>
-          <div className="text-[10px] text-slate-500 flex items-center justify-between">
-            <span>Architecture: v4.2.0</span>
-            <span className="text-gold-400 font-semibold">Institutional Ready</span>
-          </div>
+          <span className="text-[10px] font-mono text-slate-400">Live</span>
         </div>
       </aside>
     </>

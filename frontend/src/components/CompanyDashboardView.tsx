@@ -403,17 +403,80 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
 
   if (loading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[500px] text-center p-8 bg-navy-900/50 rounded-2xl border border-navy-800">
-        <RefreshCw className="h-8 w-8 text-gold-400 animate-spin mb-4" />
-        <h3 className="text-lg font-semibold text-white">Analyzing Financial Statements...</h3>
-        <p className="text-xs text-slate-400 max-w-sm mt-1">
-          Auto-fetching multi-year statements, computing deterministic ratios, and indexing pgvector chunks.
-        </p>
+      <div className="space-y-6">
+        {/* Shimmer Skeleton: Company Hero Strip */}
+        <div className="bg-[#11141B] border border-white/[0.07] rounded-xl p-5 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] animate-pulse">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+            <div className="space-y-2.5">
+              <div className="flex items-center gap-3">
+                <div className="h-7 w-48 bg-white/[0.06] rounded-md" />
+                <div className="h-5 w-20 bg-white/[0.04] rounded-md" />
+                <div className="h-5 w-14 bg-white/[0.04] rounded-md" />
+              </div>
+              <div className="h-4 w-64 bg-white/[0.03] rounded" />
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="text-right space-y-1">
+                <div className="h-3 w-16 bg-white/[0.04] rounded ml-auto" />
+                <div className="h-7 w-28 bg-white/[0.06] rounded-md ml-auto" />
+              </div>
+              <div className="h-9 w-9 bg-white/[0.04] rounded-lg" />
+            </div>
+          </div>
+        </div>
+
+        {/* Cold-start notification banner if server is waking up */}
         {isSlowLoading && (
-          <div className="mt-4 px-4 py-2.5 rounded-lg bg-navy-850 border border-gold-500/30 text-gold-400 text-xs animate-pulse max-w-md shadow-lg shadow-gold-500/5">
-            Waking up live market server on Render (first load may take ~20–30s)...
+          <div className="px-4 py-3 rounded-xl bg-sky-500/10 border border-sky-500/30 text-sky-300 text-xs flex items-center gap-2 animate-pulse shadow-lg">
+            <RefreshCw className="h-4 w-4 animate-spin flex-shrink-0" />
+            <span>Waking up live market server on Render (first load may take ~20–30s)...</span>
           </div>
         )}
+
+        {/* Shimmer Skeleton: 5 KPI Tiles */}
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {[1, 2, 3, 4, 5].map((i) => (
+            <div
+              key={i}
+              className="bg-[#11141B] border border-white/[0.07] rounded-xl p-3.5 space-y-2 animate-pulse"
+            >
+              <div className="h-3 w-20 bg-white/[0.04] rounded" />
+              <div className="h-6 w-28 bg-white/[0.06] rounded" />
+              <div className="h-3 w-16 bg-white/[0.03] rounded" />
+            </div>
+          ))}
+        </div>
+
+        {/* Shimmer Skeleton: Chart Container */}
+        <div className="bg-[#11141B] border border-white/[0.07] rounded-xl p-5 space-y-4 animate-pulse">
+          <div className="flex items-center justify-between">
+            <div className="h-4 w-44 bg-white/[0.06] rounded" />
+            <div className="h-5 w-32 bg-white/[0.04] rounded-lg" />
+          </div>
+          <div className="h-56 bg-white/[0.02] rounded-lg border border-white/[0.04] flex items-center justify-center">
+            <div className="flex items-center gap-2 text-slate-500 text-xs font-mono">
+              <RefreshCw className="h-4 w-4 animate-spin text-sky-400" />
+              <span>Calibrating financial curves...</span>
+            </div>
+          </div>
+        </div>
+
+        {/* Shimmer Skeleton: Financial Table Lines */}
+        <div className="bg-[#11141B] border border-white/[0.07] rounded-xl p-5 space-y-3 animate-pulse">
+          <div className="h-4 w-36 bg-white/[0.06] rounded" />
+          <div className="space-y-2 pt-2">
+            {[1, 2, 3, 4].map((i) => (
+              <div key={i} className="h-8 bg-white/[0.03] rounded flex items-center justify-between px-3">
+                <div className="h-3 w-32 bg-white/[0.05] rounded" />
+                <div className="flex gap-4">
+                  <div className="h-3 w-16 bg-white/[0.04] rounded" />
+                  <div className="h-3 w-16 bg-white/[0.04] rounded" />
+                  <div className="h-3 w-16 bg-white/[0.04] rounded" />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
       </div>
     );
   }
@@ -429,7 +492,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
     );
 
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-8 bg-navy-900/60 rounded-2xl border border-navy-800 shadow-xl">
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-8 bg-[#11141B] rounded-xl border border-white/[0.07] shadow-xl">
         <div className={`h-12 w-12 rounded-full ${isColdStart ? 'bg-amber-500/10 text-amber-400' : 'bg-red-500/10 text-red-400'} flex items-center justify-center mb-3`}>
           {isColdStart ? <RefreshCw className={`h-6 w-6 ${refreshing ? 'animate-spin' : ''}`} /> : <HelpCircle className="h-6 w-6" />}
         </div>
@@ -444,7 +507,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
         <button
           onClick={() => fetchAnalysis(true)}
           disabled={refreshing}
-          className="mt-4 px-4 py-2 rounded-lg bg-navy-800 hover:bg-navy-750 text-xs font-medium text-gold-400 border border-gold-500/30 flex items-center gap-1.5 transition-all shadow-md"
+          className="mt-4 px-4 py-2 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-xs font-medium text-sky-400 border border-sky-500/30 flex items-center gap-1.5 transition-all shadow-md"
         >
           <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
           <span>{refreshing ? 'Connecting...' : 'Reconnect Live Server'}</span>
@@ -499,81 +562,90 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
   }));
 
   // 1. INSTITUTIONAL COMPANY HEADER
-  const renderHeader = () => (
-    <div className="bg-navy-900/80 backdrop-blur border border-navy-800 rounded-2xl p-5 sm:p-6 shadow-xl relative overflow-hidden">
-      <div className="absolute top-0 right-0 h-40 w-40 bg-gradient-to-br from-gold-500/5 to-transparent rounded-full blur-2xl pointer-events-none" />
+  const renderHeader = () => {
+    const marketPrice = quote?.current_price;
+    const peRatio = quote?.trailing_pe;
+    const mCap = quote?.market_cap;
 
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-        <div>
-          <div className="flex items-center gap-2.5 flex-wrap">
-            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-              {company_name}
-            </h1>
-            <button
-              type="button"
-              onClick={toggleWatchlist}
-              className={`p-1.5 rounded-lg border transition-all ${
-                isWatchlisted
-                  ? 'bg-gold-500/15 border-gold-500/40 text-gold-400 shadow-sm shadow-gold-500/20'
-                  : 'bg-navy-950/80 border-navy-700 text-slate-400 hover:text-gold-300 hover:border-gold-500/30'
-              }`}
-              title={isWatchlisted ? 'Remove from Watchlist' : 'Add to Personal Watchlist'}
-            >
-              <Star className={`h-4 w-4 ${isWatchlisted ? 'fill-gold-400 text-gold-400' : 'text-slate-400'}`} />
-            </button>
-            <span className="px-2 py-0.5 text-xs font-mono font-bold bg-navy-950 text-gold-400 border border-navy-700 rounded">
-              {symbol || 'EQUITY'}
-            </span>
-            <span className="px-2 py-0.5 text-xs font-semibold bg-navy-800 text-slate-300 border border-navy-700 rounded">
-              {normExchange}
-            </span>
-            {is_cached && (
-              <span className="px-2 py-0.5 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded flex items-center gap-1">
-                <Database className="h-3 w-3" /> Neon Cache
+    return (
+      <div className="bg-[#11141B] border border-white/[0.07] rounded-xl p-5 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] relative overflow-hidden">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                {company_name}
+              </h1>
+              <button
+                type="button"
+                onClick={toggleWatchlist}
+                className={`p-1.5 rounded-lg border transition-all ${
+                  isWatchlisted
+                    ? 'bg-sky-500/10 border-sky-500/30 text-sky-400 shadow-sm'
+                    : 'bg-white/[0.03] border-white/[0.08] text-slate-400 hover:text-white hover:border-white/[0.15]'
+                }`}
+                title={isWatchlisted ? 'Remove from Watchlist' : 'Add to Personal Watchlist'}
+              >
+                <Star className={`h-4 w-4 ${isWatchlisted ? 'fill-sky-400 text-sky-400' : 'text-slate-400'}`} />
+              </button>
+              <span className="px-2 py-0.5 text-xs font-mono font-bold bg-white/[0.04] text-sky-400 border border-white/[0.08] rounded">
+                {symbol || 'EQUITY'}
               </span>
-            )}
-            <span className="px-2 py-0.5 text-xs font-medium bg-blue-500/10 text-blue-300 border border-blue-500/30 rounded">
-              {data_source?.replace('_', ' ').toUpperCase()}
-            </span>
-          </div>
-
-          <p className="text-xs text-slate-400 mt-1 flex items-center gap-3">
-            <span>Currency: <strong className="text-slate-200">{currency} ({curSymbol})</strong></span>
-            {quote?.sector && <span>• Sector: <strong className="text-slate-200">{quote.sector}</strong></span>}
-            {last_synced_at && (
-              <span>• Last synced: <strong className="text-slate-300 font-mono text-[11px]">{new Date(last_synced_at).toLocaleString()}</strong></span>
-            )}
-          </p>
-        </div>
-
-        {/* Price, Valuation & Refresh Button */}
-        <div className="flex items-center gap-3">
-          {quote?.current_price && (
-            <div className="text-right pr-4 border-r border-navy-800">
-              <div className="text-xs text-slate-400 font-medium">Market Price</div>
-              <div className="text-lg font-bold font-mono text-white">
-                {formatPerShare(quote.current_price, currency)}
-              </div>
-              {quote?.trailing_pe && (
-                <div className="text-[10px] text-gold-400 font-mono">
-                  P/E: {formatMultiple(quote.trailing_pe)}
-                </div>
+              <span className="px-2 py-0.5 text-xs font-semibold bg-white/[0.04] text-slate-300 border border-white/[0.08] rounded">
+                {normExchange}
+              </span>
+              {quote?.sector && (
+                <span className="px-2 py-0.5 text-xs font-medium bg-sky-500/10 text-sky-400 border border-sky-500/20 rounded">
+                  {quote.sector}
+                </span>
+              )}
+              {is_cached && (
+                <span className="px-2 py-0.5 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 rounded flex items-center gap-1 font-mono">
+                  <Database className="h-2.5 w-2.5" /> Neon DB
+                </span>
               )}
             </div>
-          )}
 
-          <button
-            onClick={() => fetchAnalysis(true)}
-            disabled={refreshing}
-            className="px-3.5 py-2 rounded-xl bg-navy-800 hover:bg-navy-750 text-slate-200 hover:text-white border border-navy-700 text-xs font-medium flex items-center gap-1.5 transition-all shadow-sm"
-          >
-            <RefreshCw className={`h-3.5 w-3.5 text-gold-400 ${refreshing ? 'animate-spin' : ''}`} />
-            <span>{refreshing ? 'Syncing...' : 'Refresh Live Data'}</span>
-          </button>
+            <p className="text-xs text-slate-400 flex items-center gap-3 font-mono">
+              <span>Currency: <strong className="text-slate-200">{currency} ({curSymbol})</strong></span>
+              {last_synced_at && (
+                <span>• Synced: <strong className="text-slate-300 font-mono text-[11px]">{new Date(last_synced_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}</strong></span>
+              )}
+            </p>
+          </div>
+
+          {/* Large Tabular Price, Inline P/E, Market Cap & Icon-Only Refresh */}
+          <div className="flex items-center gap-3 self-start md:self-auto">
+            {marketPrice != null && (
+              <div className="text-left md:text-right pr-3 md:border-r md:border-white/[0.08]">
+                <div className="text-[10px] uppercase font-mono font-medium text-slate-400 tracking-wider">Market Price</div>
+                <div className="text-2xl font-bold font-mono text-white tabular-nums tracking-tight">
+                  {formatPerShare(marketPrice, currency)}
+                </div>
+                <div className="flex items-center gap-2 text-[11px] font-mono text-slate-400 mt-0.5">
+                  {peRatio != null && (
+                    <span>P/E: <strong className="text-slate-200 tabular-nums">{formatMultiple(peRatio)}</strong></span>
+                  )}
+                  {mCap != null && (
+                    <span>• MCap: <strong className="text-slate-200 tabular-nums">{formatFinancialValue(mCap, currency)}</strong></span>
+                  )}
+                </div>
+              </div>
+            )}
+
+            {/* Clean icon-only refresh button */}
+            <button
+              onClick={() => fetchAnalysis(true)}
+              disabled={refreshing}
+              className="p-2.5 rounded-lg bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.08] transition-all shadow-sm"
+              title={refreshing ? 'Syncing...' : 'Refresh Live Data'}
+            >
+              <RefreshCw className={`h-4 w-4 text-sky-400 ${refreshing ? 'animate-spin' : ''}`} />
+            </button>
+          </div>
         </div>
       </div>
-    </div>
-  );
+    );
+  };
 
   // 2. SECTOR PEER COMPARISON TABLE (Shared)
   const renderComparisonCell = (
@@ -587,11 +659,11 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
   };
 
   const renderPeerComparison = () => (
-    <div className="bg-navy-900/90 border border-navy-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-navy-800 pb-3">
+    <div className="bg-[#11141B] border border-white/[0.07] rounded-xl p-5 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
         <div>
           <div className="flex items-center gap-2">
-            <span className="h-5 px-2 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+            <span className="h-5 px-2 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 font-mono">
               <Users className="h-3 w-3" />
               Institutional Peer Universe
             </span>
@@ -601,7 +673,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
           </div>
           <h2 className="text-base font-bold text-white mt-1 flex items-center gap-2">
             <span>Automatic Sector Peer Comparison</span>
-            {loadingPeers && <RefreshCw className="h-3.5 w-3.5 animate-spin text-gold-400" />}
+            {loadingPeers && <RefreshCw className="h-3.5 w-3.5 animate-spin text-sky-400" />}
           </h2>
         </div>
 
@@ -633,7 +705,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
         <div className="overflow-x-auto">
           <table className="w-full text-xs text-left">
             <thead>
-              <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase bg-navy-950/60">
+              <tr className="border-b border-white/[0.06] text-slate-400 text-[11px] font-mono uppercase bg-[#0C0E14]">
                 <th className="py-2.5 px-3 font-semibold min-w-[200px]">Company</th>
                 <th className="py-2.5 px-3 text-right font-semibold">Price</th>
                 <th className="py-2.5 px-3 text-right font-semibold">Market Cap</th>
@@ -644,20 +716,20 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                 <th className="py-2.5 px-3 text-right font-semibold">YoY Rev Growth</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-navy-800/40 font-mono">
+            <tbody className="divide-y divide-white/[0.04] font-mono tabular-nums">
               {/* Active Company Highlight Row */}
               {peerData.target && (
-                <tr className="bg-gold-500/10 border-l-4 border-l-gold-500 hover:bg-gold-500/15 transition-colors">
+                <tr className="bg-sky-500/10 border-l-4 border-l-sky-400 hover:bg-sky-500/15 transition-colors">
                   <td className="py-3 px-3">
                     <div className="flex items-center gap-2">
-                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-gold-500 text-navy-950 uppercase tracking-wider">
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-sky-500 text-white uppercase tracking-wider font-mono">
                         Active
                       </span>
                       <div>
                         <div className="font-sans font-bold text-white text-xs">
                           {peerData.target.name}
                         </div>
-                        <div className="text-[10px] text-gold-400 font-mono font-medium">
+                        <div className="text-[10px] text-sky-400 font-mono font-medium">
                           {peerData.target.symbol}
                         </div>
                       </div>
@@ -722,13 +794,13 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                 <tr
                   key={peer.symbol}
                   onClick={() => handleSelectPeer(peer.symbol)}
-                  className="hover:bg-navy-800/60 cursor-pointer transition-colors group"
+                  className="hover:bg-white/[0.03] cursor-pointer transition-colors group border-b border-white/[0.04]"
                 >
                   <td className="py-3 px-3">
                     <div className="flex items-center gap-2">
-                      <ChevronRight className="h-3 w-3 text-slate-500 group-hover:text-gold-400 group-hover:translate-x-0.5 transition-all" />
+                      <ChevronRight className="h-3 w-3 text-slate-500 group-hover:text-sky-400 group-hover:translate-x-0.5 transition-all" />
                       <div>
-                        <div className="font-sans font-medium text-slate-200 group-hover:text-gold-300 text-xs transition-colors">
+                        <div className="font-sans font-medium text-slate-200 group-hover:text-white text-xs transition-colors">
                           {peer.name}
                         </div>
                         <div className="text-[10px] text-slate-400 font-mono">
@@ -793,10 +865,10 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
 
               {/* Sector Median Benchmark Row */}
               {peerData.sector_median && (
-                <tr className="bg-cyan-950/20 font-bold border-t-2 border-cyan-500/30">
+                <tr className="bg-sky-500/[0.06] font-bold border-t-2 border-sky-500/30">
                   <td className="py-3 px-3">
                     <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono">
+                      <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-sky-500/10 text-sky-400 border border-sky-500/20 font-mono">
                         MEDIAN
                       </span>
                       <div className="font-sans text-xs text-white">
@@ -804,25 +876,25 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                       </div>
                     </div>
                   </td>
-                  <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                  <td className="py-3 px-3 text-right text-sky-300 font-mono tabular-nums">
                     {formatPerShare(peerData.sector_median.price, peerData.sector_median.currency)}
                   </td>
-                  <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                  <td className="py-3 px-3 text-right text-sky-300 font-mono tabular-nums">
                     {formatFinancialValue(peerData.sector_median.market_cap, peerData.sector_median.currency)}
                   </td>
-                  <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                  <td className="py-3 px-3 text-right text-sky-300 font-mono tabular-nums">
                     {formatMultiple(peerData.sector_median.pe_ratio)}
                   </td>
-                  <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                  <td className="py-3 px-3 text-right text-sky-300 font-mono tabular-nums">
                     {formatPercent(peerData.sector_median.opm_pct)}
                   </td>
-                  <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                  <td className="py-3 px-3 text-right text-sky-300 font-mono tabular-nums">
                     {formatPercent(peerData.sector_median.net_margin_pct)}
                   </td>
-                  <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                  <td className="py-3 px-3 text-right text-sky-300 font-mono tabular-nums">
                     {formatPercent(peerData.sector_median.roe_pct)}
                   </td>
-                  <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                  <td className="py-3 px-3 text-right text-sky-300 font-mono tabular-nums">
                     {formatPercent(peerData.sector_median.revenue_growth_pct)}
                   </td>
                 </tr>
@@ -864,7 +936,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
               <thead>
-                <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase bg-navy-950/60">
+                <tr className="border-b border-white/[0.06] text-slate-400 text-[11px] font-mono uppercase bg-[#0C0E14]">
                   <th className="py-3 px-4 font-semibold min-w-[220px]">Metric</th>
                   {cagrHeaders.map((h: string, idx: number) => (
                     <th key={idx} className="py-3 px-4 text-right font-bold text-white min-w-[110px]">
@@ -873,7 +945,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-navy-800/40 font-mono">
+              <tbody className="divide-y divide-white/[0.04] font-mono tabular-nums">
                 {[
                   { key: 'sales_growth', label: 'Sales / Revenue CAGR' },
                   { key: 'ebit_growth', label: 'Operating Profit (EBIT) CAGR' },
@@ -943,7 +1015,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
               <thead>
-                <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase bg-navy-950/60">
+                <tr className="border-b border-white/[0.06] text-slate-400 text-[11px] font-mono uppercase bg-[#0C0E14]">
                   <th className="py-2.5 px-3 font-semibold min-w-[200px]">Margin Ratio</th>
                   {displayPeriods.map((p: any, idx: number) => (
                     <th key={idx} className="py-2.5 px-3 text-right font-mono font-bold text-white">
@@ -952,7 +1024,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-navy-800/40 font-mono">
+              <tbody className="divide-y divide-white/[0.04] font-mono tabular-nums">
                 <tr>
                   <td className="py-2.5 px-3 font-sans font-medium text-slate-300">Gross Margin %</td>
                   {displayPeriods.map((p: any, idx: number) => {
@@ -1212,10 +1284,10 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
   // 5. STANDARD EXECUTIVE OVERVIEW WORKSPACE (?tab=overview)
   const renderOverviewWorkspace = () => (
     <div className="space-y-6">
-      {/* 2. INSTITUTIONAL KPI SUMMARY STRIP */}
+      {/* 2. INSTITUTIONAL KPI SUMMARY STRIP (5-Tile Ribbon) */}
       {kpis.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          {kpis.map((kpi: any, i: number) => {
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+          {kpis.slice(0, 5).map((kpi: any, i: number) => {
             let displayVal = kpi.value || 'N/A';
             const isRatio = kpi.label.includes('P/E') || kpi.label.includes('ROE') || kpi.label.includes('Margin') || kpi.label.includes('%');
 
@@ -1239,16 +1311,18 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
             return (
               <div
                 key={i}
-                className="bg-navy-900/90 border border-navy-800 rounded-xl p-3.5 flex flex-col justify-between hover:border-navy-700 transition-all shadow-md"
+                className="bg-[#11141B] border border-white/[0.07] rounded-xl p-3.5 flex flex-col justify-between hover:border-white/[0.14] transition-all shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]"
               >
-                <div className="text-[11px] font-medium text-slate-400 truncate">{kpi.label}</div>
-                <div className="text-base sm:text-lg font-bold font-mono text-white mt-1">
+                <div className="text-[10px] font-mono font-medium text-slate-400 uppercase tracking-wider truncate">{kpi.label}</div>
+                <div className="text-base sm:text-lg font-bold font-mono text-white tabular-nums mt-1">
                   {displayVal}
                 </div>
                 {kpi.change && (
                   <div
-                    className={`text-[10px] font-semibold flex items-center gap-0.5 mt-1 ${
-                      kpi.is_positive ? 'text-emerald-400' : 'text-amber-400'
+                    className={`inline-flex items-center gap-1 mt-1 text-[10px] font-mono font-semibold px-1.5 py-0.2 rounded w-fit tabular-nums ${
+                      kpi.is_positive
+                        ? 'text-emerald-400 bg-emerald-500/10 border border-emerald-500/20'
+                        : 'text-rose-400 bg-rose-500/10 border border-rose-500/20'
                     }`}
                   >
                     {kpi.is_positive ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
@@ -1261,12 +1335,17 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
         </div>
       )}
 
+      {/* 2b. INTERACTIVE GRADIENT REVENUE & PROFITABILITY TRAJECTORY CHART */}
+      {chartData && chartData.length > 0 && (
+        <ChartRevenue data={chartData} ticker={symbol} currency={currency} />
+      )}
+
       {/* 3. DETERMINISTIC SCENARIO CARDS (Trailing vs Base Case vs Best Case vs Worst Case) */}
       {scenarios && (
-        <div className="bg-navy-900/70 border border-navy-800 rounded-2xl p-5 shadow-lg">
+        <div className="bg-[#11141B] border border-white/[0.07] rounded-xl p-5 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]">
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
-              <ShieldCheck className="h-4 w-4 text-gold-400" />
+              <ShieldCheck className="h-4 w-4 text-sky-400" />
               <h2 className="text-sm font-bold uppercase tracking-wider text-white">
                 Valuation & Scenario Analysis
               </h2>
@@ -1278,61 +1357,61 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
 
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
             {/* Trailing */}
-            <div className="bg-navy-950/80 border border-navy-800 rounded-xl p-4">
+            <div className="bg-[#0C0E14] border border-white/[0.08] rounded-xl p-4">
               <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Trailing Price</div>
-              <div className="text-xl font-bold font-mono text-white mt-1">
+              <div className="text-xl font-bold font-mono text-white mt-1 tabular-nums">
                 {formatPerShare(scenarios.trailing_price, currency)}
               </div>
-              <div className="text-[10px] text-slate-400 mt-1">
+              <div className="text-[10px] text-slate-400 mt-1 font-mono">
                 Multiple: <strong className="text-slate-200">{(quote?.trailing_pe ?? scenarios.trailing_pe) ? formatMultiple(quote?.trailing_pe ?? scenarios.trailing_pe) : 'N/A'}</strong>
               </div>
             </div>
 
             {/* Base Case */}
             {scenarios.base_case_price && (
-              <div className="bg-navy-950/80 border border-blue-500/20 rounded-xl p-4">
-                <div className="text-[10px] uppercase font-bold text-blue-400 tracking-wider">Base Case Target</div>
-                <div className="text-xl font-bold font-mono text-blue-300 mt-1">
+              <div className="bg-[#0C0E14] border border-sky-500/20 rounded-xl p-4">
+                <div className="text-[10px] uppercase font-bold text-sky-400 tracking-wider">Base Case Target</div>
+                <div className="text-xl font-bold font-mono text-sky-300 mt-1 tabular-nums">
                   {formatPerShare(scenarios.base_case_price, currency)}
                 </div>
-                <div className="text-[10px] text-slate-400 mt-1">
+                <div className="text-[10px] text-slate-400 mt-1 font-mono">
                   Median Growth & Valuation Multiple
                 </div>
               </div>
             )}
 
             {/* Best Case */}
-            <div className="bg-navy-950/80 border border-emerald-500/30 rounded-xl p-4 relative overflow-hidden">
+            <div className="bg-[#0C0E14] border border-emerald-500/30 rounded-xl p-4 relative overflow-hidden">
               <div className="flex items-center justify-between">
                 <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">Best Case Target</span>
                 {scenarios.upside_best_pct !== undefined && scenarios.upside_best_pct !== null && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300">
+                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300 font-mono tabular-nums">
                     {scenarios.upside_best_pct > 0 ? `+${Number(scenarios.upside_best_pct).toFixed(2)}%` : `${Number(scenarios.upside_best_pct).toFixed(2)}%`}
                   </span>
                 )}
               </div>
-              <div className="text-xl font-bold font-mono text-emerald-300 mt-1">
+              <div className="text-xl font-bold font-mono text-emerald-300 mt-1 tabular-nums">
                 {formatPerShare(scenarios.best_case_price, currency)}
               </div>
-              <div className="text-[10px] text-slate-400 mt-1">
+              <div className="text-[10px] text-slate-400 mt-1 font-mono">
                 Optimistic multiple expansion & sales growth
               </div>
             </div>
 
             {/* Worst Case */}
-            <div className="bg-navy-950/80 border border-amber-500/30 rounded-xl p-4 relative overflow-hidden">
+            <div className="bg-[#0C0E14] border border-rose-500/30 rounded-xl p-4 relative overflow-hidden">
               <div className="flex items-center justify-between">
-                <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider">Worst Case Floor</span>
+                <span className="text-[10px] uppercase font-bold text-rose-400 tracking-wider">Worst Case Floor</span>
                 {scenarios.downside_worst_pct !== undefined && scenarios.downside_worst_pct !== null && (
-                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300">
+                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-rose-500/20 text-rose-300 font-mono tabular-nums">
                     {Number(scenarios.downside_worst_pct).toFixed(2)}%
                   </span>
                 )}
               </div>
-              <div className="text-xl font-bold font-mono text-amber-300 mt-1">
+              <div className="text-xl font-bold font-mono text-rose-300 mt-1 tabular-nums">
                 {formatPerShare(scenarios.worst_case_price, currency)}
               </div>
-              <div className="text-[10px] text-slate-400 mt-1">
+              <div className="text-[10px] text-slate-400 mt-1 font-mono">
                 Margin compression & conservative multiple
               </div>
             </div>
@@ -1344,16 +1423,16 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
       {renderPeerComparison()}
 
       {/* 3c. LIVE COMPANY MARKET NEWS FEED */}
-      <div className="bg-navy-900/90 border border-navy-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-navy-800 pb-3">
+      <div className="bg-[#11141B] border border-white/[0.07] rounded-xl p-5 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/[0.06] pb-3">
           <div className="flex items-center gap-2">
-            <span className="h-5 px-2 rounded bg-gold-500/10 text-gold-400 border border-gold-500/30 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+            <span className="h-5 px-2 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1 font-mono">
               <Newspaper className="h-3 w-3" />
               Live News Feed
             </span>
             <h2 className="text-base font-bold text-white flex items-center gap-2">
               <span>Latest Market News & Intelligence</span>
-              {loadingNews && <RefreshCw className="h-3.5 w-3.5 animate-spin text-gold-400" />}
+              {loadingNews && <RefreshCw className="h-3.5 w-3.5 animate-spin text-sky-400" />}
             </h2>
           </div>
 
@@ -1369,7 +1448,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
 
         {loadingNews && newsItems.length === 0 ? (
           <div className="py-8 flex flex-col items-center justify-center text-center text-xs text-slate-400">
-            <RefreshCw className="h-5 w-5 animate-spin text-gold-400 mb-2" />
+            <RefreshCw className="h-5 w-5 animate-spin text-sky-400 mb-2" />
             <span>Scanning real-time institutional financial news wire...</span>
           </div>
         ) : newsItems.length === 0 ? (
@@ -1384,11 +1463,11 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                 href={item.link}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="bg-navy-950/70 hover:bg-navy-850/80 border border-navy-800 hover:border-gold-500/40 rounded-xl p-4 flex flex-col justify-between transition-all group shadow-sm hover:shadow-md"
+                className="bg-[#0C0E14] hover:bg-white/[0.03] border border-white/[0.06] hover:border-white/[0.14] rounded-xl p-4 flex flex-col justify-between transition-all group shadow-sm"
               >
                 <div>
                   <div className="flex items-center justify-between gap-2 mb-2">
-                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-navy-900 border border-navy-750 text-gold-400 truncate max-w-[140px]">
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-white/[0.04] border border-white/[0.08] text-sky-400 truncate max-w-[140px] font-mono">
                       {item.publisher}
                     </span>
                     <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1 flex-shrink-0">
@@ -1401,7 +1480,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                     </span>
                   </div>
 
-                  <h3 className="text-xs font-semibold text-slate-200 group-hover:text-gold-300 leading-snug transition-colors line-clamp-2">
+                  <h3 className="text-xs font-semibold text-slate-200 group-hover:text-white leading-snug transition-colors line-clamp-2">
                     {item.title}
                   </h3>
 
@@ -1412,9 +1491,9 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                   )}
                 </div>
 
-                <div className="mt-3 pt-2 border-t border-navy-800/60 flex items-center justify-between text-[10px] text-slate-400 group-hover:text-gold-400">
+                <div className="mt-3 pt-2 border-t border-white/[0.06] flex items-center justify-between text-[10px] text-slate-400 group-hover:text-sky-400">
                   <span className="font-medium">Read Full Article</span>
-                  <ExternalLink className="h-3 w-3 text-slate-500 group-hover:text-gold-400 transition-colors" />
+                  <ExternalLink className="h-3 w-3 text-slate-500 group-hover:text-sky-400 transition-colors" />
                 </div>
               </a>
             ))}
@@ -1422,14 +1501,14 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
         )}
       </div>
 
-      {/* 4. MAIN FINANCIAL STATEMENTS & TRENDS TABS */}
-      <div className="bg-navy-900 border border-navy-800 rounded-2xl shadow-xl overflow-hidden">
+      {/* 4. MAIN HIGH-DENSITY FINANCIAL STATEMENTS & TRENDS TABS */}
+      <div className="bg-[#11141B] border border-white/[0.07] rounded-xl shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset] overflow-hidden">
         {/* Navigation Tab Bar */}
-        <div className="flex items-center gap-1 border-b border-navy-800 px-4 py-2.5 overflow-x-auto bg-navy-950/50">
+        <div className="flex items-center gap-1 border-b border-white/[0.06] px-4 py-2.5 overflow-x-auto bg-[#0C0E14]">
           <button
             onClick={() => setActiveTab('income')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'income' ? 'bg-gold-500/20 text-gold-300 border border-gold-500/40' : 'text-slate-400 hover:text-white'
+              activeTab === 'income' ? 'bg-sky-500/10 text-sky-300 border border-sky-500/20' : 'text-slate-400 hover:text-white'
             }`}
           >
             Income Statement
@@ -1437,7 +1516,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
           <button
             onClick={() => setActiveTab('balance')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'balance' ? 'bg-gold-500/20 text-gold-300 border border-gold-500/40' : 'text-slate-400 hover:text-white'
+              activeTab === 'balance' ? 'bg-sky-500/10 text-sky-300 border border-sky-500/20' : 'text-slate-400 hover:text-white'
             }`}
           >
             Balance Sheet
@@ -1445,7 +1524,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
           <button
             onClick={() => setActiveTab('cashflow')}
             className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-              activeTab === 'cashflow' ? 'bg-gold-500/20 text-gold-300 border border-gold-500/40' : 'text-slate-400 hover:text-white'
+              activeTab === 'cashflow' ? 'bg-sky-500/10 text-sky-300 border border-sky-500/20' : 'text-slate-400 hover:text-white'
             }`}
           >
             Cash Flow
@@ -1454,7 +1533,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
             <button
               onClick={() => setActiveTab('trends')}
               className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                activeTab === 'trends' ? 'bg-gold-500/20 text-gold-300 border border-gold-500/40' : 'text-slate-400 hover:text-white'
+                activeTab === 'trends' ? 'bg-sky-500/10 text-sky-300 border border-sky-500/20' : 'text-slate-400 hover:text-white'
               }`}
             >
               Trends & Horizons
@@ -1462,60 +1541,60 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
           )}
         </div>
 
-        {/* Tab Content Tables */}
-        <div className="p-4 sm:p-5 overflow-x-auto">
+        {/* High-Density Tab Content Tables with Sticky Metric Column & Tabular Nums */}
+        <div className="overflow-x-auto">
           {activeTab === 'income' && (
             <table className="w-full text-xs text-left">
               <thead>
-                <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase">
-                  <th className="py-2.5 pr-4 font-semibold">Line Item</th>
+                <tr className="border-b border-white/[0.06] bg-[#0C0E14] text-slate-400 text-[11px] font-mono uppercase">
+                  <th className="py-2.5 px-4 font-semibold sticky left-0 bg-[#0C0E14] z-20 border-r border-white/[0.06] min-w-[220px]">Line Item</th>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <th key={idx} className="py-2.5 px-3 text-right font-semibold">
+                    <th key={idx} className="py-2.5 px-4 text-right font-semibold min-w-[110px]">
                       {p.fiscal_period || (p.fiscal_year ? `FY${p.fiscal_year}` : 'FY')}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-navy-800/40 font-mono">
-                <tr>
-                  <td className="py-2.5 pr-4 text-white font-sans font-semibold">Total Revenue</td>
+              <tbody className="divide-y divide-white/[0.04] font-mono tabular-nums">
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-white font-sans font-semibold sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">Total Revenue</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
+                    <td key={idx} className="py-2.5 px-4 text-right text-slate-200">
                       {formatFinancialValue(p.revenue, currency)}
                     </td>
                   ))}
                 </tr>
-                <tr>
-                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Operating Income (EBIT)</td>
+                <tr className="bg-sky-500/[0.03] border-b border-white/[0.06] hover:bg-sky-500/[0.06] transition-colors">
+                  <td className="py-2.5 px-4 text-sky-300 font-sans font-bold sticky left-0 bg-[#141822] z-10 border-r border-white/[0.06]">Operating Income (EBIT)</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
+                    <td key={idx} className="py-2.5 px-4 text-right text-sky-200 font-bold">
                       {formatFinancialValue(p.operating_income, currency)}
                     </td>
                   ))}
                 </tr>
-                <tr>
-                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Operating Margin (OPM %)</td>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">Operating Margin (OPM %)</td>
                   {displayPeriods.map((p: any, idx: number) => {
                     const opmVal = p.opm_pct ?? (p.operating_income && p.revenue ? (p.operating_income / p.revenue) * 100 : null);
                     return (
-                      <td key={idx} className="py-2.5 px-3 text-right text-gold-300 font-semibold">
+                      <td key={idx} className="py-2.5 px-4 text-right text-sky-400 font-semibold">
                         {formatPercent(opmVal)}
                       </td>
                     );
                   })}
                 </tr>
-                <tr className="bg-navy-950/30">
-                  <td className="py-2.5 pr-4 text-emerald-400 font-sans font-semibold">Net Income</td>
+                <tr className="bg-emerald-500/[0.05] border-b border-white/[0.08] hover:bg-emerald-500/[0.08] transition-colors">
+                  <td className="py-2.5 px-4 text-emerald-400 font-sans font-bold sticky left-0 bg-[#121c1a] z-10 border-r border-white/[0.06]">Net Income</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-emerald-300 font-bold">
+                    <td key={idx} className="py-2.5 px-4 text-right text-emerald-300 font-bold">
                       {formatFinancialValue(p.net_income, currency)}
                     </td>
                   ))}
                 </tr>
-                <tr>
-                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Diluted EPS</td>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">Diluted EPS</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
+                    <td key={idx} className="py-2.5 px-4 text-right text-slate-200">
                       {formatPerShare(p.eps, currency)}
                     </td>
                   ))}
@@ -1527,44 +1606,44 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
           {activeTab === 'balance' && (
             <table className="w-full text-xs text-left">
               <thead>
-                <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase">
-                  <th className="py-2.5 pr-4 font-semibold">Line Item</th>
+                <tr className="border-b border-white/[0.06] bg-[#0C0E14] text-slate-400 text-[11px] font-mono uppercase">
+                  <th className="py-2.5 px-4 font-semibold sticky left-0 bg-[#0C0E14] z-20 border-r border-white/[0.06] min-w-[220px]">Line Item</th>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <th key={idx} className="py-2.5 px-3 text-right font-semibold">
+                    <th key={idx} className="py-2.5 px-4 text-right font-semibold min-w-[110px]">
                       {p.fiscal_period || (p.fiscal_year ? `FY${p.fiscal_year}` : 'FY')}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-navy-800/40 font-mono">
-                <tr>
-                  <td className="py-2.5 pr-4 text-white font-sans font-semibold">Total Assets</td>
+              <tbody className="divide-y divide-white/[0.04] font-mono tabular-nums">
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-white font-sans font-semibold sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">Total Assets</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
+                    <td key={idx} className="py-2.5 px-4 text-right text-slate-200">
                       {formatFinancialValue(p.total_assets, currency)}
                     </td>
                   ))}
                 </tr>
-                <tr>
-                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Total Liabilities</td>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">Total Liabilities</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
+                    <td key={idx} className="py-2.5 px-4 text-right text-slate-200">
                       {formatFinancialValue(p.total_liabilities, currency)}
                     </td>
                   ))}
                 </tr>
-                <tr>
-                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Total Debt</td>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">Total Debt</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
+                    <td key={idx} className="py-2.5 px-4 text-right text-slate-200">
                       {formatFinancialValue(p.total_debt, currency)}
                     </td>
                   ))}
                 </tr>
-                <tr className="bg-navy-950/30">
-                  <td className="py-2.5 pr-4 text-emerald-400 font-sans font-semibold">Total Stockholders' Equity</td>
+                <tr className="bg-sky-500/[0.04] border-b border-white/[0.08] hover:bg-sky-500/[0.07] transition-colors">
+                  <td className="py-2.5 px-4 text-sky-300 font-sans font-bold sticky left-0 bg-[#141822] z-10 border-r border-white/[0.06]">Total Stockholders' Equity</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-emerald-300 font-bold">
+                    <td key={idx} className="py-2.5 px-4 text-right text-sky-200 font-bold">
                       {formatFinancialValue(p.total_equity, currency)}
                     </td>
                   ))}
@@ -1576,36 +1655,36 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
           {activeTab === 'cashflow' && (
             <table className="w-full text-xs text-left">
               <thead>
-                <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase">
-                  <th className="py-2.5 pr-4 font-semibold">Line Item</th>
+                <tr className="border-b border-white/[0.06] bg-[#0C0E14] text-slate-400 text-[11px] font-mono uppercase">
+                  <th className="py-2.5 px-4 font-semibold sticky left-0 bg-[#0C0E14] z-20 border-r border-white/[0.06] min-w-[220px]">Line Item</th>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <th key={idx} className="py-2.5 px-3 text-right font-semibold">
+                    <th key={idx} className="py-2.5 px-4 text-right font-semibold min-w-[110px]">
                       {p.fiscal_period || (p.fiscal_year ? `FY${p.fiscal_year}` : 'FY')}
                     </th>
                   ))}
                 </tr>
               </thead>
-              <tbody className="divide-y divide-navy-800/40 font-mono">
-                <tr>
-                  <td className="py-2.5 pr-4 text-white font-sans font-semibold">Operating Cash Flow (OCF)</td>
+              <tbody className="divide-y divide-white/[0.04] font-mono tabular-nums">
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-white font-sans font-semibold sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">Operating Cash Flow (OCF)</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
+                    <td key={idx} className="py-2.5 px-4 text-right text-slate-200">
                       {formatFinancialValue(p.operating_cash_flow, currency)}
                     </td>
                   ))}
                 </tr>
-                <tr>
-                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Capital Expenditure (CapEx)</td>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">Capital Expenditure (CapEx)</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-rose-300">
+                    <td key={idx} className="py-2.5 px-4 text-right text-rose-400">
                       {formatFinancialValue(p.capital_expenditure, currency)}
                     </td>
                   ))}
                 </tr>
-                <tr className="bg-navy-950/30">
-                  <td className="py-2.5 pr-4 text-emerald-400 font-sans font-semibold">Free Cash Flow (FCF)</td>
+                <tr className="bg-emerald-500/[0.05] border-b border-white/[0.08] hover:bg-emerald-500/[0.08] transition-colors">
+                  <td className="py-2.5 px-4 text-emerald-400 font-sans font-bold sticky left-0 bg-[#121c1a] z-10 border-r border-white/[0.06]">Free Cash Flow (FCF)</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-emerald-300 font-bold">
+                    <td key={idx} className="py-2.5 px-4 text-right text-emerald-300 font-bold">
                       {formatFinancialValue(p.free_cash_flow, currency)}
                     </td>
                   ))}
@@ -1615,31 +1694,31 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
           )}
 
           {activeTab === 'trends' && trends && (
-            <div className="space-y-4">
+            <div className="p-4 sm:p-5 space-y-4">
               <div className="text-[11px] text-slate-400 font-mono uppercase tracking-wider mb-2">
                 Compounded Growth & Margin Matrix Across Horizons
               </div>
               <table className="w-full text-xs text-left">
                 <thead>
-                  <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase">
-                    <th className="py-2.5 pr-4 font-semibold">Metric</th>
+                  <tr className="border-b border-white/[0.06] bg-[#0C0E14] text-slate-400 text-[11px] font-mono uppercase">
+                    <th className="py-2.5 px-4 font-semibold sticky left-0 bg-[#0C0E14] z-20 border-r border-white/[0.06] min-w-[220px]">Metric</th>
                     {(trends.headers || []).map((h: string, idx: number) => (
-                      <th key={idx} className="py-2.5 px-3 text-right font-semibold">
+                      <th key={idx} className="py-2.5 px-4 text-right font-semibold min-w-[110px]">
                         {h}
                       </th>
                     ))}
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-navy-800/40 font-mono">
+                <tbody className="divide-y divide-white/[0.04] font-mono tabular-nums">
                   {Object.entries(trends.metrics || {}).map(([metricName, spanMap]: [string, any], mIdx: number) => (
-                    <tr key={mIdx}>
-                      <td className="py-2.5 pr-4 text-white font-sans font-semibold capitalize">
+                    <tr key={mIdx} className="hover:bg-white/[0.03] transition-colors">
+                      <td className="py-2.5 px-4 text-white font-sans font-semibold capitalize sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                         {metricName.replace('_', ' ')}
                       </td>
                       {(trends.headers || []).map((h: string, hIdx: number) => {
                         const val = spanMap[h];
                         return (
-                          <td key={hIdx} className="py-2.5 px-3 text-right text-slate-200">
+                          <td key={hIdx} className="py-2.5 px-4 text-right text-slate-200">
                             {val !== undefined && val !== null ? `${val}%` : '—'}
                           </td>
                         );
@@ -1654,10 +1733,10 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
       </div>
 
       {/* 5. AI RESEARCH ANALYST DESK PREVIEW */}
-      <div className="bg-navy-900 border border-navy-800 rounded-2xl p-5 shadow-xl">
-        <div className="flex items-center justify-between mb-3 border-b border-navy-800 pb-3">
+      <div className="bg-[#11141B] border border-white/[0.07] rounded-xl p-5 shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]">
+        <div className="flex items-center justify-between mb-3 border-b border-white/[0.06] pb-3">
           <div className="flex items-center gap-2">
-            <Sparkles className="h-4 w-4 text-gold-400" />
+            <Sparkles className="h-4 w-4 text-sky-400" />
             <h3 className="text-sm font-bold text-white tracking-wide uppercase">
               AI Research Analyst Desk (Gemini Flash RAG)
             </h3>
@@ -1679,7 +1758,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
               key={i}
               onClick={() => handleAsk(promptText)}
               disabled={asking}
-              className="text-[11px] px-2.5 py-1 rounded-full bg-navy-800 hover:bg-navy-750 text-slate-300 hover:text-white border border-navy-700 hover:border-gold-500/40 transition-all"
+              className="text-[11px] px-2.5 py-1 rounded-full bg-white/[0.04] hover:bg-white/[0.08] text-slate-300 hover:text-white border border-white/[0.08] transition-all font-sans"
             >
               {promptText}
             </button>
@@ -1693,12 +1772,12 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
               key={idx}
               className={`p-3.5 rounded-xl text-xs ${
                 msg.role === 'user'
-                  ? 'bg-navy-800 text-white ml-8 border border-navy-700'
-                  : 'bg-navy-950/80 text-slate-200 mr-4 border border-navy-800'
+                  ? 'bg-white/[0.06] text-white ml-8 border border-white/[0.08]'
+                  : 'bg-[#0C0E14] text-slate-200 mr-4 border border-white/[0.06]'
               }`}
             >
               <div className="flex items-center justify-between mb-1">
-                <span className="font-semibold text-[10px] uppercase text-gold-400">
+                <span className="font-semibold text-[10px] uppercase text-sky-400 font-mono">
                   {msg.role === 'user' ? 'Analyst Inquiry' : 'Institutional Synthesis'}
                 </span>
                 <span className="text-[9px] text-slate-500 font-mono">
@@ -1709,12 +1788,12 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
 
               {/* Grounded Citation Chips */}
               {msg.citations && msg.citations.length > 0 && (
-                <div className="mt-2.5 pt-2 border-t border-navy-800/80 flex items-center gap-1.5 flex-wrap">
+                <div className="mt-2.5 pt-2 border-t border-white/[0.06] flex items-center gap-1.5 flex-wrap">
                   <span className="text-[10px] text-slate-400 font-medium">Sources:</span>
                   {msg.citations.map((cite, cIdx) => (
                     <span
                       key={cIdx}
-                      className="px-2 py-0.5 text-[10px] font-mono bg-navy-900 border border-navy-700 text-slate-300 rounded hover:border-gold-500/50 transition-colors"
+                      className="px-2 py-0.5 text-[10px] font-mono bg-white/[0.04] border border-white/[0.08] text-slate-300 rounded hover:border-sky-500/40 transition-colors"
                       title={cite.snippet}
                     >
                       {cite.source_ref}
@@ -1726,8 +1805,8 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
           ))}
 
           {asking && (
-            <div className="p-3.5 rounded-xl text-xs bg-navy-950/80 text-slate-400 mr-4 border border-navy-800 flex items-center gap-2">
-              <RefreshCw className="h-3.5 w-3.5 text-gold-400 animate-spin" />
+            <div className="p-3.5 rounded-xl text-xs bg-[#0C0E14] text-slate-400 mr-4 border border-white/[0.06] flex items-center gap-2">
+              <RefreshCw className="h-3.5 w-3.5 text-sky-400 animate-spin" />
               <span>Querying pgvector cosine indexes and synthesizing research answer...</span>
             </div>
           )}
@@ -1747,12 +1826,12 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
             onChange={(e) => setQuestion(e.target.value)}
             disabled={asking}
             placeholder={`Ask research question about ${company_name} (e.g. What drove the OPM expansion in FY24?)...`}
-            className="flex-1 bg-navy-950 border border-navy-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-gold-500/50 focus:ring-1 focus:ring-gold-500/30 transition-all"
+            className="flex-1 bg-[#0C0E14] border border-white/[0.08] rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-sky-500/50 focus:ring-1 focus:ring-sky-500/30 transition-all font-sans"
           />
           <button
             type="submit"
             disabled={asking || !question.trim()}
-            className="px-4 py-2.5 rounded-xl bg-gold-500 hover:bg-gold-450 disabled:bg-slate-750 text-navy-950 disabled:text-slate-500 font-bold text-xs flex items-center gap-1.5 transition-all shadow-md"
+            className="px-4 py-2.5 rounded-xl bg-sky-500 hover:bg-sky-400 disabled:bg-slate-800 text-white disabled:text-slate-500 font-bold text-xs flex items-center gap-1.5 transition-all shadow-md"
           >
             <Send className="h-3.5 w-3.5" />
             <span>Ask</span>
