@@ -1,0 +1,3 @@
+fiscal_year,fiscal_period,statement_type,revenue,cost_of_revenue,gross_profit,operating_income,ebit,net_income,total_assets,current_assets,total_liabilities,current_liabilities,total_equity,cash_and_equivalents,inventory,total_debt,operating_cash_flow,capital_expenditure,free_cash_flow,depreciation_amortization,source
+2024,FY,annual_combined,125000.00,55000.00,70000.00,42000.00,42000.00,35000.00,180000.00,65000.00,80000.00,35000.00,100000.00,28000.00,12000.00,45000.00,48000.00,12000.00,36000.00,6500.00,SEC EDGAR
+2025,FY,annual_combined,145000.00,62000.00,83000.00,51000.00,51000.00,43000.00,210000.00,78000.00,88000.00,38000.00,122000.00,35000.00,14000.00,42000.00,56000.00,14000.00,42000.00,7200.00,SEC EDGAR

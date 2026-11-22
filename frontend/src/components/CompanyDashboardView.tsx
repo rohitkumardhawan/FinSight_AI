@@ -1,0 +1,787 @@
+'use client';
+
+import React, { useState, useEffect } from 'react';
+import {
+  TrendingUp,
+  TrendingDown,
+  RefreshCw,
+  Building2,
+  DollarSign,
+  BarChart3,
+  Calendar,
+  Layers,
+  Sparkles,
+  Send,
+  ExternalLink,
+  ChevronRight,
+  Database,
+  ArrowUpRight,
+  ArrowDownRight,
+  ShieldCheck,
+  HelpCircle,
+  FileSpreadsheet
+} from 'lucide-react';
+import { API_BASE } from '@/lib/api';
+import {
+  formatFinancialValue,
+  formatPerShare,
+  formatMultiple,
+  formatPercent,
+  normalizeExchange,
+  getCurrencySymbol,
+  getUnitLabel
+} from '@/lib/formatters';
+
+interface CitationItem {
+  source_ref: string;
+  chunk_type: string;
+  snippet: string;
+}
+
+interface ChatMessage {
+  role: 'user' | 'assistant';
+  content: string;
+  citations?: CitationItem[];
+}
+
+interface CompanyDashboardViewProps {
+  symbolOrId: string;
+  initialData?: any;
+  onRefresh?: () => void;
+}
+
+export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
+  symbolOrId,
+  initialData,
+}) => {
+  const [data, setData] = useState<any>(initialData || null);
+  const [loading, setLoading] = useState<boolean>(!initialData);
+  const [isSlowLoading, setIsSlowLoading] = useState<boolean>(false);
+  const [refreshing, setRefreshing] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
+  const [activeTab, setActiveTab] = useState<'income' | 'balance' | 'cashflow' | 'trends' | 'scenarios'>('income');
+
+  // Cold-start notification timer for Render free-tier wake up (>5s)
+  useEffect(() => {
+    let timer: NodeJS.Timeout | null = null;
+    if (loading) {
+      setIsSlowLoading(false);
+      timer = setTimeout(() => {
+        setIsSlowLoading(true);
+      }, 5000);
+    } else {
+      setIsSlowLoading(false);
+    }
+    return () => {
+      if (timer) clearTimeout(timer);
+    };
+  }, [loading]);
+
+  // AI Research Chat state
+  const [question, setQuestion] = useState('');
+  const [asking, setAsking] = useState(false);
+  const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
+
+  // 1. Fetch analysis data from backend
+  const fetchAnalysis = async (forceRefresh: boolean = false) => {
+    if (forceRefresh) setRefreshing(true);
+    else setLoading(true);
+    setError(null);
+
+    try {
+      const url = `${API_BASE}/companies/${encodeURIComponent(symbolOrId)}/analysis?refresh=${forceRefresh}`;
+      const res = await fetch(url);
+      if (!res.ok) {
+        const errJson = await res.json().catch(() => ({}));
+        throw new Error(errJson.detail || `Server returned ${res.status}`);
+      }
+      const json = await res.json();
+      setData(json);
+
+      // Seed initial research message
+      if (chatHistory.length === 0 && json.auto_insights?.summary_narrative) {
+        setChatHistory([
+          {
+            role: 'assistant',
+            content: json.auto_insights.summary_narrative,
+            citations: [
+              {
+                source_ref: `${json.company_name} | Profile Overview`,
+                chunk_type: 'profile',
+                snippet: 'Grounded multi-period financial analysis'
+              }
+            ]
+          }
+        ]);
+      }
+    } catch (err: any) {
+      console.error('Failed to load analysis:', err);
+      setError(err.message || 'Failed to load company analysis.');
+    } finally {
+      setLoading(false);
+      setRefreshing(false);
+    }
+  };
+
+  useEffect(() => {
+    if (symbolOrId) {
+      fetchAnalysis(false);
+    }
+  }, [symbolOrId]);
+
+  // 2. Submit Question to Gemini RAG API
+  const handleAsk = async (userPrompt?: string) => {
+    const qText = userPrompt || question.trim();
+    if (!qText || !data?.company_id || asking) return;
+
+    const newMsg: ChatMessage = { role: 'user', content: qText };
+    setChatHistory((prev) => [...prev, newMsg]);
+    if (!userPrompt) setQuestion('');
+    setAsking(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/companies/${data.company_id}/ask`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ dataset_id: data.company_id, question: qText })
+      });
+
+      if (!res.ok) {
+        throw new Error('AI research query failed.');
+      }
+
+      const resJson = await res.json();
+      setChatHistory((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: resJson.answer,
+          citations: resJson.citations
+        }
+      ]);
+    } catch (e: any) {
+      setChatHistory((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          content: 'Unable to complete AI inquiry. Please ensure your backend is running and GEMINI_API_KEY is configured.'
+        }
+      ]);
+    } finally {
+      setAsking(false);
+    }
+  };
+
+  if (loading) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[500px] text-center p-8 bg-navy-900/50 rounded-2xl border border-navy-800">
+        <RefreshCw className="h-8 w-8 text-gold-400 animate-spin mb-4" />
+        <h3 className="text-lg font-semibold text-white">Analyzing Financial Statements...</h3>
+        <p className="text-xs text-slate-400 max-w-sm mt-1">
+          Auto-fetching multi-year statements, computing deterministic ratios, and indexing pgvector chunks.
+        </p>
+        {isSlowLoading && (
+          <div className="mt-4 px-4 py-2.5 rounded-lg bg-navy-850 border border-gold-500/30 text-gold-400 text-xs animate-pulse max-w-md shadow-lg shadow-gold-500/5">
+            Waking up live market server on Render (first load may take ~20–30s)...
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  if (error || !data) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-8 bg-navy-900/50 rounded-2xl border border-red-500/20">
+        <div className="h-12 w-12 rounded-full bg-red-500/10 text-red-400 flex items-center justify-center mb-3">
+          <HelpCircle className="h-6 w-6" />
+        </div>
+        <h3 className="text-base font-semibold text-white">Analysis Unavailable</h3>
+        <p className="text-xs text-red-300 max-w-md mt-1">{error || 'No financial records found for this company.'}</p>
+        <button
+          onClick={() => fetchAnalysis(true)}
+          className="mt-4 px-4 py-2 rounded-lg bg-navy-800 hover:bg-navy-700 text-xs font-medium text-slate-200 border border-navy-700 flex items-center gap-1.5 transition-all"
+        >
+          <RefreshCw className="h-3.5 w-3.5" /> Retry Fetch
+        </button>
+      </div>
+    );
+  }
+
+  const {
+    company_name,
+    symbol,
+    exchange,
+    currency,
+    data_source,
+    is_cached,
+    last_synced_at,
+    quote,
+    periods = [],
+    trends,
+    scenarios,
+    auto_insights
+  } = data;
+
+  const kpis = auto_insights?.kpis || auto_insights?.kpi_cards || [];
+  const curSymbol = getCurrencySymbol(currency);
+  const normExchange = normalizeExchange(exchange, symbol);
+
+  // Filter out periods where core financial metrics (revenue, op_income, net_income) are all null/empty
+  const validPeriods = periods.filter((p: any) =>
+    (p.revenue !== null && p.revenue !== undefined) ||
+    (p.operating_income !== null && p.operating_income !== undefined) ||
+    (p.net_income !== null && p.net_income !== undefined)
+  );
+  const displayPeriods = validPeriods.length > 0 ? validPeriods : periods;
+
+  return (
+    <div className="space-y-6">
+      {/* 1. INSTITUTIONAL COMPANY HEADER */}
+      <div className="bg-navy-900/80 backdrop-blur border border-navy-800 rounded-2xl p-5 sm:p-6 shadow-xl relative overflow-hidden">
+        <div className="absolute top-0 right-0 h-40 w-40 bg-gradient-to-br from-gold-500/5 to-transparent rounded-full blur-2xl pointer-events-none" />
+
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+          <div>
+            <div className="flex items-center gap-2.5 flex-wrap">
+              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+                {company_name}
+              </h1>
+              <span className="px-2 py-0.5 text-xs font-mono font-bold bg-navy-950 text-gold-400 border border-navy-700 rounded">
+                {symbol || 'EQUITY'}
+              </span>
+              <span className="px-2 py-0.5 text-xs font-semibold bg-navy-800 text-slate-300 border border-navy-700 rounded">
+                {normExchange}
+              </span>
+              {is_cached && (
+                <span className="px-2 py-0.5 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded flex items-center gap-1">
+                  <Database className="h-3 w-3" /> Neon Cache
+                </span>
+              )}
+              <span className="px-2 py-0.5 text-xs font-medium bg-blue-500/10 text-blue-300 border border-blue-500/30 rounded">
+                {data_source?.replace('_', ' ').toUpperCase()}
+              </span>
+            </div>
+
+            <p className="text-xs text-slate-400 mt-1 flex items-center gap-3">
+              <span>Currency: <strong className="text-slate-200">{currency} ({curSymbol})</strong></span>
+              {quote?.sector && <span>• Sector: <strong className="text-slate-200">{quote.sector}</strong></span>}
+              {last_synced_at && (
+                <span>• Last synced: <strong className="text-slate-300 font-mono text-[11px]">{new Date(last_synced_at).toLocaleString()}</strong></span>
+              )}
+            </p>
+          </div>
+
+          {/* Price, Valuation & Refresh Button */}
+          <div className="flex items-center gap-3">
+            {quote?.current_price && (
+              <div className="text-right pr-4 border-r border-navy-800">
+                <div className="text-xs text-slate-400 font-medium">Market Price</div>
+                <div className="text-lg font-bold font-mono text-white">
+                  {formatPerShare(quote.current_price, currency)}
+                </div>
+                {quote?.trailing_pe && (
+                  <div className="text-[10px] text-gold-400 font-mono">
+                    P/E: {formatMultiple(quote.trailing_pe)}
+                  </div>
+                )}
+              </div>
+            )}
+
+            <button
+              onClick={() => fetchAnalysis(true)}
+              disabled={refreshing}
+              className="px-3.5 py-2 rounded-xl bg-navy-800 hover:bg-navy-750 text-slate-200 hover:text-white border border-navy-700 text-xs font-medium flex items-center gap-1.5 transition-all shadow-sm"
+            >
+              <RefreshCw className={`h-3.5 w-3.5 text-gold-400 ${refreshing ? 'animate-spin' : ''}`} />
+              <span>{refreshing ? 'Syncing...' : 'Refresh Live Data'}</span>
+            </button>
+          </div>
+        </div>
+      </div>
+
+      {/* 2. INSTITUTIONAL KPI SUMMARY STRIP */}
+      {kpis.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
+          {kpis.map((kpi: any, i: number) => (
+            <div
+              key={i}
+              className="bg-navy-900/90 border border-navy-800 rounded-xl p-3.5 flex flex-col justify-between hover:border-navy-700 transition-all shadow-md"
+            >
+              <div className="text-[11px] font-medium text-slate-400 truncate">{kpi.label}</div>
+              <div className="text-base sm:text-lg font-bold font-mono text-white mt-1">
+                {kpi.value || 'N/A'}
+              </div>
+              {kpi.change && (
+                <div
+                  className={`text-[10px] font-semibold flex items-center gap-0.5 mt-1 ${
+                    kpi.is_positive ? 'text-emerald-400' : 'text-amber-400'
+                  }`}
+                >
+                  {kpi.is_positive ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+                  <span>{kpi.change}</span>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* 3. DETERMINISTIC SCENARIO CARDS (Trailing vs Base Case vs Best Case vs Worst Case) */}
+      {scenarios && (
+        <div className="bg-navy-900/70 border border-navy-800 rounded-2xl p-5 shadow-lg">
+          <div className="flex items-center justify-between mb-4">
+            <div className="flex items-center gap-2">
+              <ShieldCheck className="h-4 w-4 text-gold-400" />
+              <h2 className="text-sm font-bold uppercase tracking-wider text-white">
+                Valuation & Scenario Analysis
+              </h2>
+            </div>
+            <span className="text-[10px] text-slate-400 font-mono">
+              HISTORICAL AVG P/E: {scenarios.historical_avg_pe ? formatMultiple(scenarios.historical_avg_pe) : 'N/A'}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {/* Trailing */}
+            <div className="bg-navy-950/80 border border-navy-800 rounded-xl p-4">
+              <div className="text-[10px] uppercase font-bold text-slate-400 tracking-wider">Trailing Price</div>
+              <div className="text-xl font-bold font-mono text-white mt-1">
+                {formatPerShare(scenarios.trailing_price, currency)}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-1">
+                Multiple: <strong className="text-slate-200">{scenarios.trailing_pe ? formatMultiple(scenarios.trailing_pe) : 'N/A'}</strong>
+              </div>
+            </div>
+
+            {/* Base Case */}
+            {scenarios.base_case_price && (
+              <div className="bg-navy-950/80 border border-blue-500/20 rounded-xl p-4">
+                <div className="text-[10px] uppercase font-bold text-blue-400 tracking-wider">Base Case Target</div>
+                <div className="text-xl font-bold font-mono text-blue-300 mt-1">
+                  {formatPerShare(scenarios.base_case_price, currency)}
+                </div>
+                <div className="text-[10px] text-slate-400 mt-1">
+                  Median Growth & Valuation Multiple
+                </div>
+              </div>
+            )}
+
+            {/* Best Case */}
+            <div className="bg-navy-950/80 border border-emerald-500/30 rounded-xl p-4 relative overflow-hidden">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-bold text-emerald-400 tracking-wider">Best Case Target</span>
+                {scenarios.upside_best_pct !== undefined && scenarios.upside_best_pct !== null && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-emerald-500/20 text-emerald-300">
+                    {scenarios.upside_best_pct > 0 ? `+${Number(scenarios.upside_best_pct).toFixed(2)}%` : `${Number(scenarios.upside_best_pct).toFixed(2)}%`}
+                  </span>
+                )}
+              </div>
+              <div className="text-xl font-bold font-mono text-emerald-300 mt-1">
+                {formatPerShare(scenarios.best_case_price, currency)}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-1">
+                Optimistic multiple expansion & sales growth
+              </div>
+            </div>
+
+            {/* Worst Case */}
+            <div className="bg-navy-950/80 border border-amber-500/30 rounded-xl p-4 relative overflow-hidden">
+              <div className="flex items-center justify-between">
+                <span className="text-[10px] uppercase font-bold text-amber-400 tracking-wider">Worst Case Floor</span>
+                {scenarios.downside_worst_pct !== undefined && scenarios.downside_worst_pct !== null && (
+                  <span className="text-[10px] font-bold px-1.5 py-0.2 rounded bg-amber-500/20 text-amber-300">
+                    {Number(scenarios.downside_worst_pct).toFixed(2)}%
+                  </span>
+                )}
+              </div>
+              <div className="text-xl font-bold font-mono text-amber-300 mt-1">
+                {formatPerShare(scenarios.worst_case_price, currency)}
+              </div>
+              <div className="text-[10px] text-slate-400 mt-1">
+                Margin compression & conservative multiple
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 4. MAIN FINANCIAL STATEMENTS & TRENDS TABS */}
+      <div className="bg-navy-900 border border-navy-800 rounded-2xl shadow-xl overflow-hidden">
+        {/* Navigation Tab Bar */}
+        <div className="flex items-center gap-1 border-b border-navy-800 px-4 py-2.5 overflow-x-auto bg-navy-950/50">
+          <button
+            onClick={() => setActiveTab('income')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'income' ? 'bg-gold-500/20 text-gold-300 border border-gold-500/40' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Income Statement
+          </button>
+          <button
+            onClick={() => setActiveTab('balance')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'balance' ? 'bg-gold-500/20 text-gold-300 border border-gold-500/40' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Balance Sheet
+          </button>
+          <button
+            onClick={() => setActiveTab('cashflow')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              activeTab === 'cashflow' ? 'bg-gold-500/20 text-gold-300 border border-gold-500/40' : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            Cash Flow
+          </button>
+          {trends && (
+            <button
+              onClick={() => setActiveTab('trends')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                activeTab === 'trends' ? 'bg-gold-500/20 text-gold-300 border border-gold-500/40' : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              Multi-Year Trends Matrix
+            </button>
+          )}
+        </div>
+
+        {/* Tab Content Tables */}
+        <div className="p-4 sm:p-5 overflow-x-auto">
+          {activeTab === 'income' && (
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase">
+                  <th className="py-2.5 pr-4 font-semibold">Metric ({getUnitLabel(currency)})</th>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <th key={idx} className="py-2.5 px-3 text-right font-semibold">
+                      {p.fiscal_period || `FY${p.fiscal_year}`}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-navy-800/40 font-mono">
+                <tr>
+                  <td className="py-2.5 pr-4 text-white font-sans font-semibold">Sales / Revenue</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
+                      {formatFinancialValue(p.revenue, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Operating Expenses</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
+                      {formatFinancialValue(p.operating_expenses, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="bg-navy-950/30">
+                  <td className="py-2.5 pr-4 text-emerald-400 font-sans font-semibold">Operating Profit</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-emerald-300 font-bold">
+                      {formatFinancialValue(p.operating_income, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="py-2.5 pr-4 text-slate-300 font-sans">OPM %</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-gold-400">
+                      {p.opm_pct !== null && p.opm_pct !== undefined ? formatPercent(p.opm_pct) : '—'}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Other Income</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
+                      {formatFinancialValue(p.other_income, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Depreciation</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
+                      {formatFinancialValue(p.depreciation_amortization, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Interest Expense</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
+                      {formatFinancialValue(p.interest_expense, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="bg-navy-950/40">
+                  <td className="py-2.5 pr-4 text-white font-sans font-semibold">Net Profit</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-white font-bold">
+                      {formatFinancialValue(p.net_income, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="py-2.5 pr-4 text-slate-300 font-sans">EPS</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-300">
+                      {formatPerShare(p.eps, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Price to Earning (P/E)</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
+                      {formatMultiple(p.pe_ratio)}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          )}
+
+          {activeTab === 'balance' && (
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase">
+                  <th className="py-2.5 pr-4 font-semibold">Balance Sheet Items ({getUnitLabel(currency)})</th>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <th key={idx} className="py-2.5 px-3 text-right font-semibold">
+                      {p.fiscal_period || `FY${p.fiscal_year}`}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-navy-800/40 font-mono">
+                <tr>
+                  <td className="py-2.5 pr-4 text-white font-sans font-semibold">Total Assets</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
+                      {formatFinancialValue(p.total_assets, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Current Assets</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
+                      {formatFinancialValue(p.current_assets, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Total Liabilities</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
+                      {formatFinancialValue(p.total_liabilities, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="bg-navy-950/30">
+                  <td className="py-2.5 pr-4 text-emerald-400 font-sans font-semibold">Stockholders Equity / Net Worth</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-emerald-300 font-bold">
+                      {formatFinancialValue(p.total_equity, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Total Debt</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
+                      {formatFinancialValue(p.total_debt, currency)}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          )}
+
+          {activeTab === 'cashflow' && (
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase">
+                  <th className="py-2.5 pr-4 font-semibold">Cash Flow Statement ({getUnitLabel(currency)})</th>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <th key={idx} className="py-2.5 px-3 text-right font-semibold">
+                      {p.fiscal_period || `FY${p.fiscal_year}`}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-navy-800/40 font-mono">
+                <tr>
+                  <td className="py-2.5 pr-4 text-white font-sans font-semibold">Operating Cash Flow (CFO)</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
+                      {formatFinancialValue(p.operating_cash_flow, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr>
+                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Capital Expenditure (CapEx)</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
+                      {formatFinancialValue(p.capital_expenditure, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="bg-navy-950/30">
+                  <td className="py-2.5 pr-4 text-emerald-400 font-sans font-semibold">Free Cash Flow (FCF)</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-emerald-300 font-bold">
+                      {formatFinancialValue(p.free_cash_flow, currency)}
+                    </td>
+                  ))}
+                </tr>
+              </tbody>
+            </table>
+          )}
+
+          {activeTab === 'trends' && trends && (
+            <div className="space-y-4">
+              <div className="text-[11px] text-slate-400 font-mono uppercase tracking-wider mb-2">
+                Compounded Growth & Margin Matrix Across Horizons
+              </div>
+              <table className="w-full text-xs text-left">
+                <thead>
+                  <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase">
+                    <th className="py-2.5 pr-4 font-semibold">Metric</th>
+                    {(trends.headers || []).map((h: string, idx: number) => (
+                      <th key={idx} className="py-2.5 px-3 text-right font-semibold">
+                        {h}
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-navy-800/40 font-mono">
+                  {Object.entries(trends.metrics || {}).map(([metricName, spanMap]: [string, any], mIdx: number) => (
+                    <tr key={mIdx}>
+                      <td className="py-2.5 pr-4 text-white font-sans font-semibold capitalize">
+                        {metricName.replace('_', ' ')}
+                      </td>
+                      {(trends.headers || []).map((h: string, hIdx: number) => {
+                        const val = spanMap[h];
+                        return (
+                          <td key={hIdx} className="py-2.5 px-3 text-right text-slate-200">
+                            {val !== undefined && val !== null ? `${val}%` : '—'}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* 5. AI RESEARCH ANALYST PANEL (GEMINI 3.8 FLASH RAG) */}
+      <div className="bg-navy-900 border border-navy-800 rounded-2xl p-5 shadow-xl">
+        <div className="flex items-center justify-between mb-3 border-b border-navy-800 pb-3">
+          <div className="flex items-center gap-2">
+            <Sparkles className="h-4 w-4 text-gold-400" />
+            <h3 className="text-sm font-bold text-white tracking-wide uppercase">
+              AI Research Analyst Desk (Gemini 3.8 Flash RAG)
+            </h3>
+          </div>
+          <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
+            <Database className="h-2.5 w-2.5" /> GROUNDED ON VERIFIED CANONICAL DB
+          </span>
+        </div>
+
+        {/* Starter Prompts */}
+        <div className="flex items-center gap-2 flex-wrap mb-4">
+          <span className="text-[11px] text-slate-400 font-medium">Quick Prompts:</span>
+          {[
+            'Analyze margin & growth trends',
+            'Explain Best vs. Worst case valuation',
+            'Summarize revenue trajectory and operating profit'
+          ].map((promptText, i) => (
+            <button
+              key={i}
+              onClick={() => handleAsk(promptText)}
+              disabled={asking}
+              className="text-[11px] px-2.5 py-1 rounded-full bg-navy-800 hover:bg-navy-750 text-slate-300 hover:text-white border border-navy-700 hover:border-gold-500/40 transition-all"
+            >
+              {promptText}
+            </button>
+          ))}
+        </div>
+
+        {/* Chat History Messages */}
+        <div className="space-y-3 max-h-96 overflow-y-auto pr-1 mb-4">
+          {chatHistory.map((msg, idx) => (
+            <div
+              key={idx}
+              className={`p-3.5 rounded-xl text-xs ${
+                msg.role === 'user'
+                  ? 'bg-navy-800 text-white ml-8 border border-navy-700'
+                  : 'bg-navy-950/80 text-slate-200 mr-4 border border-navy-800'
+              }`}
+            >
+              <div className="font-semibold text-[10px] uppercase text-gold-400 mb-1">
+                {msg.role === 'user' ? 'Analyst Inquiry' : 'Institutional Synthesis'}
+              </div>
+              <div className="whitespace-pre-line leading-relaxed">{msg.content}</div>
+
+              {/* Grounded Citation Chips */}
+              {msg.citations && msg.citations.length > 0 && (
+                <div className="mt-2.5 pt-2 border-t border-navy-800/80 flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] text-slate-400 font-medium">Sources:</span>
+                  {msg.citations.map((cite, cIdx) => (
+                    <span
+                      key={cIdx}
+                      className="px-2 py-0.5 text-[10px] font-mono bg-navy-900 border border-navy-700 text-slate-300 rounded hover:border-gold-500/50 transition-colors"
+                      title={cite.snippet}
+                    >
+                      {cite.source_ref}
+                    </span>
+                  ))}
+                </div>
+              )}
+            </div>
+          ))}
+
+          {asking && (
+            <div className="p-3.5 rounded-xl text-xs bg-navy-950/80 text-slate-400 mr-4 border border-navy-800 flex items-center gap-2">
+              <RefreshCw className="h-3.5 w-3.5 text-gold-400 animate-spin" />
+              <span>Querying pgvector cosine indexes and synthesizing research answer...</span>
+            </div>
+          )}
+        </div>
+
+        {/* Question Input Box */}
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            handleAsk();
+          }}
+          className="flex items-center gap-2"
+        >
+          <input
+            type="text"
+            value={question}
+            onChange={(e) => setQuestion(e.target.value)}
+            disabled={asking}
+            placeholder={`Ask research question about ${company_name} (e.g. What drove the OPM expansion in FY24?)...`}
+            className="flex-1 bg-navy-950 border border-navy-700 rounded-xl px-4 py-2.5 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-gold-500/50 focus:ring-1 focus:ring-gold-500/30 transition-all"
+          />
+          <button
+            type="submit"
+            disabled={asking || !question.trim()}
+            className="px-4 py-2.5 rounded-xl bg-gold-500 hover:bg-gold-450 disabled:bg-slate-750 text-navy-950 disabled:text-slate-500 font-bold text-xs flex items-center gap-1.5 transition-all shadow-md"
+          >
+            <Send className="h-3.5 w-3.5" />
+            <span>Ask</span>
+          </button>
+        </form>
+      </div>
+    </div>
+  );
+};

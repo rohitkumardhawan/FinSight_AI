@@ -1,0 +1,38 @@
+# Secrets and Environment Variables
+.env
+.env*.local
+*.env
+backend/.env
+frontend/.env.local
+frontend/.env
+
+# Python Virtual Environments & Cache
+venv/
+backend/venv/
+__pycache__/
+*.py[cod]
+*$py.class
+.pytest_cache/
+
+# Node.js & Next.js
+node_modules/
+frontend/node_modules/
+frontend/.next/
+.next/
+out/
+build/
+dist/
+
+# Logs & Debug
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# Operating System & IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+*.swp
+.neon

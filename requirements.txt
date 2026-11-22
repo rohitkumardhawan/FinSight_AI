@@ -1,0 +1,2 @@
+# FinSight AI — Python Dependencies
+-r backend/requirements.txt
