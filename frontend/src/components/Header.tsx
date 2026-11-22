@@ -55,8 +55,14 @@ export const Header: React.FC<HeaderProps> = ({
   const [results, setResults] = useState<CompanySearchResult[]>([]);
   const [recentCompanies, setRecentCompanies] = useState<CompanySearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [selectedIndex, setSelectedIndex] = useState<number>(0);
   const [marketIndices, setMarketIndices] = useState<MarketIndexQuote[]>(DEFAULT_INDICES);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // Reset selectedIndex to 0 when results update
+  useEffect(() => {
+    setSelectedIndex(0);
+  }, [results]);
 
   // 0. Live Market Indices Polling (NIFTY 50, S&P 500, NASDAQ)
   useEffect(() => {
@@ -195,6 +201,31 @@ export const Header: React.FC<HeaderProps> = ({
                 }
               }}
               onChange={(e) => setSearchTerm(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'ArrowDown') {
+                  e.preventDefault();
+                  if (!searchOpen) {
+                    setSearchOpen(true);
+                  } else if (results.length > 0) {
+                    setSelectedIndex((prev) => (prev + 1) % results.length);
+                  }
+                } else if (e.key === 'ArrowUp') {
+                  e.preventDefault();
+                  if (!searchOpen) {
+                    setSearchOpen(true);
+                  } else if (results.length > 0) {
+                    setSelectedIndex((prev) => (prev - 1 + results.length) % results.length);
+                  }
+                } else if (e.key === 'Enter') {
+                  if (results.length > 0 && searchOpen) {
+                    e.preventDefault();
+                    const target = results[selectedIndex >= 0 && selectedIndex < results.length ? selectedIndex : 0];
+                    if (target) handleSelect(target);
+                  }
+                } else if (e.key === 'Escape') {
+                  setSearchOpen(false);
+                }
+              }}
               placeholder={`Search Indian (NSE/BSE) or Global company/ticker...`}
               className="w-full bg-navy-950 border border-navy-700 rounded-lg pl-9 pr-8 py-2 text-xs text-white placeholder-slate-500 focus:outline-none focus:border-gold-500/50 focus:ring-1 focus:ring-gold-500/30 transition-all"
             />
@@ -219,8 +250,9 @@ export const Header: React.FC<HeaderProps> = ({
                 </div>
 
                 {results.length > 0 ? (
-                  results.map((item) => {
+                  results.map((item, idx) => {
                     const isSelected = currentTicker.toUpperCase() === item.symbol.toUpperCase();
+                    const isHighlighted = idx === selectedIndex;
                     const exch = normalizeExchange(item.exchange, item.symbol);
                     const isIndian = exch === 'NSE' || exch === 'BSE';
                     
@@ -228,8 +260,13 @@ export const Header: React.FC<HeaderProps> = ({
                       <button
                         key={`${item.symbol}-${item.exchange}`}
                         onClick={() => handleSelect(item)}
-                        className={`w-full px-3.5 py-2.5 flex items-center justify-between text-left text-xs transition-colors hover:bg-navy-800/90 border-b border-navy-800/40 last:border-0 ${
-                          isSelected ? 'bg-navy-850/80 text-gold-400' : 'text-slate-300'
+                        onMouseEnter={() => setSelectedIndex(idx)}
+                        className={`w-full px-3.5 py-2.5 flex items-center justify-between text-left text-xs transition-colors border-b border-navy-800/40 last:border-0 ${
+                          isHighlighted
+                            ? 'bg-navy-800 text-gold-300 ring-1 ring-gold-500/30'
+                            : isSelected
+                            ? 'bg-navy-850/80 text-gold-400'
+                            : 'text-slate-300 hover:bg-navy-800/60'
                         }`}
                       >
                         <div className="pr-2 min-w-0 flex-1">
@@ -322,12 +359,12 @@ export const Header: React.FC<HeaderProps> = ({
         )}
       </div>
 
-      {/* Center Market Pulse (Hidden on mobile/tablet) */}
-      <div className="hidden xl:flex items-center gap-6 text-xs text-slate-400">
+      {/* Center Market Pulse (Hidden on mobile/laptop < 1440px to ensure status badge never clips at 1280px) */}
+      <div className="hidden 2xl:flex items-center gap-5 text-xs text-slate-400 flex-shrink">
         {marketIndices.map((idx) => {
           const isPos = idx.change_pct >= 0;
           return (
-            <div key={idx.symbol} className="flex items-center gap-2">
+            <div key={idx.symbol} className="flex items-center gap-1.5 whitespace-nowrap">
               <span className="text-slate-400 font-medium">{idx.name}</span>
               <span className={`font-semibold font-mono ${isPos ? 'text-emerald-400' : 'text-rose-400'}`}>
                 {idx.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
@@ -339,15 +376,15 @@ export const Header: React.FC<HeaderProps> = ({
       </div>
 
       {/* Right Actions & Status Badges */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5 sm:gap-3 flex-shrink-0 whitespace-nowrap">
         {/* Live Neon & FastAPI Engine Indicator */}
-        <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] sm:text-[11px] font-semibold tracking-wide">
+        <div className="flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-emerald-500/10 border border-emerald-500/30 text-emerald-300 text-[10px] sm:text-[11px] font-semibold tracking-wide flex-shrink-0">
           <div className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
           <span>NEON PGVECTOR LIVE</span>
         </div>
 
         {/* User Pill */}
-        <div className="flex items-center gap-2 pl-3 border-l border-navy-800">
+        <div className="flex items-center gap-2 pl-2 sm:pl-3 border-l border-navy-800 flex-shrink-0">
           <div className="h-8 w-8 rounded-full bg-gradient-to-tr from-navy-700 to-navy-600 border border-navy-600 flex items-center justify-center text-gold-accent font-semibold text-xs shadow-inner">
             FS
           </div>

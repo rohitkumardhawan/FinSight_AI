@@ -35,12 +35,14 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
     currency: string;
     exchange: string;
     trailing_pe?: number | null;
+    market_cap?: number | null;
   }>({
     symbol: ticker || 'ASIANPAINT.NS',
     company_name: ticker || 'ASIANPAINT.NS',
     currency: ticker?.endsWith('.NS') ? 'INR' : 'USD',
     exchange: ticker?.endsWith('.NS') ? 'NSE' : 'GLOBAL',
     trailing_pe: null,
+    market_cap: null,
   });
   const [loading, setLoading] = useState<boolean>(false);
   const [recalculating, setRecalculating] = useState<boolean>(false);
@@ -62,6 +64,7 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
         currency: data.currency || (sym.endsWith('.NS') ? 'INR' : 'USD'),
         exchange: normalizeExchange(data.exchange, sym),
         trailing_pe: data.quote?.trailing_pe || data.auto_insights?.scenario_insights?.trailing_pe || null,
+        market_cap: data.quote?.market_cap || null,
       });
 
       const rawPeriods: any[] = data.periods || [];
@@ -152,6 +155,109 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
   const getDebtToEquity = (p: any) => {
     if (p.total_debt != null && p.total_equity && p.total_equity !== 0) {
       return p.total_debt / p.total_equity;
+    }
+    return null;
+  };
+
+  const getROIC = (p: any) => {
+    if (p.roic_pct != null) return p.roic_pct / 100;
+    const ebit = p.ebit ?? p.operating_income;
+    let capEmployed = null;
+    if (p.total_assets != null && p.current_liabilities != null) {
+      capEmployed = p.total_assets - p.current_liabilities;
+    } else if (p.total_debt != null && p.total_equity != null) {
+      capEmployed = p.total_debt + p.total_equity - (p.cash_and_equivalents || 0);
+    }
+    if (ebit != null && capEmployed && capEmployed > 0) {
+      return ebit / capEmployed;
+    }
+    return null;
+  };
+
+  const getDebtToEbitda = (p: any) => {
+    if (p.debt_to_ebitda != null) return p.debt_to_ebitda;
+    const ebit = p.ebit ?? p.operating_income;
+    const da = p.depreciation_amortization || 0;
+    const ebitda = ebit != null ? ebit + da : null;
+    if (p.total_debt != null && ebitda && ebitda > 0) {
+      return p.total_debt / ebitda;
+    }
+    return null;
+  };
+
+  const getAssetTurnover = (p: any) => {
+    if (p.asset_turnover != null) return p.asset_turnover;
+    if (p.revenue && p.total_assets && p.total_assets > 0) {
+      return p.revenue / p.total_assets;
+    }
+    return null;
+  };
+
+  const getInventoryTurnover = (p: any) => {
+    if (p.inventory_turnover != null) return p.inventory_turnover;
+    const cogs = p.cost_of_revenue ?? (p.revenue && p.gross_profit ? p.revenue - p.gross_profit : null);
+    if (cogs && p.inventory && p.inventory > 0) {
+      return cogs / p.inventory;
+    }
+    return null;
+  };
+
+  const getPeriodMarketCap = (p: any) => {
+    if (p.share_price && p.eps && p.eps > 0 && p.net_income && p.net_income > 0) {
+      return p.share_price * (p.net_income / p.eps);
+    }
+    if (p.share_price && p.pe_ratio && p.net_income && p.net_income > 0) {
+      return p.pe_ratio * p.net_income;
+    }
+    return companyInfo.market_cap;
+  };
+
+  const getEvToEbitda = (p: any) => {
+    if (p.ev_to_ebitda != null) return p.ev_to_ebitda;
+    const ebit = p.ebit ?? p.operating_income;
+    const da = p.depreciation_amortization || 0;
+    const ebitda = ebit != null ? ebit + da : null;
+    const mcap = getPeriodMarketCap(p);
+    if (mcap && ebitda && ebitda > 0) {
+      const ev = mcap + (p.total_debt || 0) - (p.cash_and_equivalents || 0);
+      return ev / ebitda;
+    }
+    return null;
+  };
+
+  const getEvToRevenue = (p: any) => {
+    if (p.ev_to_revenue != null) return p.ev_to_revenue;
+    const mcap = getPeriodMarketCap(p);
+    if (mcap && p.revenue && p.revenue > 0) {
+      const ev = mcap + (p.total_debt || 0) - (p.cash_and_equivalents || 0);
+      return ev / p.revenue;
+    }
+    return null;
+  };
+
+  const getPriceToBook = (p: any) => {
+    if (p.price_to_book != null) return p.price_to_book;
+    const mcap = getPeriodMarketCap(p);
+    if (mcap && p.total_equity && p.total_equity > 0) {
+      return mcap / p.total_equity;
+    }
+    return null;
+  };
+
+  const getPriceToSales = (p: any) => {
+    if (p.price_to_sales != null) return p.price_to_sales;
+    const mcap = getPeriodMarketCap(p);
+    if (mcap && p.revenue && p.revenue > 0) {
+      return mcap / p.revenue;
+    }
+    return null;
+  };
+
+  const getFcfYield = (p: any) => {
+    if (p.fcf_yield_pct != null) return p.fcf_yield_pct / 100;
+    const mcap = getPeriodMarketCap(p);
+    if (p.free_cash_flow != null && mcap && mcap > 0) {
+      return p.free_cash_flow / mcap;
     }
     return null;
   };
@@ -410,6 +516,17 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
                   </td>
                 ))}
               </tr>
+              <tr className="hover:bg-navy-800/30">
+                <td className="py-3 px-4 font-medium text-slate-300">
+                  Return on Capital Employed (ROCE / ROIC)
+                  <div className="text-[10px] text-slate-500 font-mono">EBIT / (Total Assets - Current Liabilities)</div>
+                </td>
+                {periods.map((p, idx) => (
+                  <td key={idx} className="py-3 px-4 text-right font-mono text-gold-300 font-semibold">
+                    {formatPercent(getROIC(p))}
+                  </td>
+                ))}
+              </tr>
 
               {/* LIQUIDITY RATIOS */}
               <tr className="bg-navy-950/80">
@@ -465,12 +582,120 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
               </tr>
               <tr className="hover:bg-navy-800/30">
                 <td className="py-3 px-4 font-medium text-slate-300">
+                  Debt / EBITDA
+                  <div className="text-[10px] text-slate-500 font-mono">Total Debt / EBITDA</div>
+                </td>
+                {periods.map((p, idx) => (
+                  <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
+                    {formatMultiple(getDebtToEbitda(p))}
+                  </td>
+                ))}
+              </tr>
+
+              {/* EFFICIENCY RATIOS */}
+              <tr className="bg-navy-950/80">
+                <td
+                  colSpan={periods.length + 1}
+                  className="py-2 px-4 text-[11px] font-bold tracking-wider uppercase text-emerald-400 border-t border-b border-emerald-500/20"
+                >
+                  4. Efficiency & Asset Utilization Ratios
+                </td>
+              </tr>
+              <tr className="hover:bg-navy-800/30">
+                <td className="py-3 px-4 font-medium text-slate-300">
+                  Asset Turnover
+                  <div className="text-[10px] text-slate-500 font-mono">Revenue / Total Assets</div>
+                </td>
+                {periods.map((p, idx) => (
+                  <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
+                    {formatMultiple(getAssetTurnover(p))}
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-navy-800/30">
+                <td className="py-3 px-4 font-medium text-slate-300">
+                  Inventory Turnover
+                  <div className="text-[10px] text-slate-500 font-mono">Cost of Goods Sold / Inventory</div>
+                </td>
+                {periods.map((p, idx) => (
+                  <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
+                    {formatMultiple(getInventoryTurnover(p))}
+                  </td>
+                ))}
+              </tr>
+
+              {/* VALUATION MULTIPLES */}
+              <tr className="bg-navy-950/80">
+                <td
+                  colSpan={periods.length + 1}
+                  className="py-2 px-4 text-[11px] font-bold tracking-wider uppercase text-purple-400 border-t border-b border-purple-500/20"
+                >
+                  5. Institutional Valuation Multiples
+                </td>
+              </tr>
+              <tr className="hover:bg-navy-800/30">
+                <td className="py-3 px-4 font-medium text-slate-300">
                   Price to Earnings (Trailing P/E)
                   <div className="text-[10px] text-slate-500 font-mono">Share Price / Diluted EPS</div>
                 </td>
                 {periods.map((p, idx) => (
+                  <td key={idx} className="py-3 px-4 text-right font-mono text-purple-300 font-semibold">
+                    {formatMultiple(p.pe_ratio || (idx === periods.length - 1 ? companyInfo.trailing_pe : null))}
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-navy-800/30">
+                <td className="py-3 px-4 font-medium text-slate-300">
+                  EV / EBITDA
+                  <div className="text-[10px] text-slate-500 font-mono">Enterprise Value / (Operating Income + D&A)</div>
+                </td>
+                {periods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
-                    {formatMultiple(p.pe_ratio)}
+                    {formatMultiple(getEvToEbitda(p))}
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-navy-800/30">
+                <td className="py-3 px-4 font-medium text-slate-300">
+                  EV / Revenue
+                  <div className="text-[10px] text-slate-500 font-mono">Enterprise Value / Revenue</div>
+                </td>
+                {periods.map((p, idx) => (
+                  <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
+                    {formatMultiple(getEvToRevenue(p))}
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-navy-800/30">
+                <td className="py-3 px-4 font-medium text-slate-300">
+                  Price-to-Book (P/B)
+                  <div className="text-[10px] text-slate-500 font-mono">Market Cap / Total Stockholders' Equity</div>
+                </td>
+                {periods.map((p, idx) => (
+                  <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
+                    {formatMultiple(getPriceToBook(p))}
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-navy-800/30">
+                <td className="py-3 px-4 font-medium text-slate-300">
+                  Price-to-Sales (P/S)
+                  <div className="text-[10px] text-slate-500 font-mono">Market Cap / Revenue</div>
+                </td>
+                {periods.map((p, idx) => (
+                  <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
+                    {formatMultiple(getPriceToSales(p))}
+                  </td>
+                ))}
+              </tr>
+              <tr className="hover:bg-navy-800/30">
+                <td className="py-3 px-4 font-medium text-slate-300">
+                  FCF Yield %
+                  <div className="text-[10px] text-slate-500 font-mono">Free Cash Flow / Market Cap</div>
+                </td>
+                {periods.map((p, idx) => (
+                  <td key={idx} className="py-3 px-4 text-right font-mono text-emerald-400 font-semibold">
+                    {formatPercent(getFcfYield(p))}
                   </td>
                 ))}
               </tr>

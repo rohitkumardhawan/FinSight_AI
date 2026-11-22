@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { 
   Calculator, 
   RotateCcw, 
@@ -81,6 +81,9 @@ export const DcfValuationView: React.FC<DcfValuationViewProps> = ({
   const [terminalGrowthPct, setTerminalGrowthPct] = useState<number>(4.0);
   const [projectionYears, setProjectionYears] = useState<number>(5);
 
+  const initialLoadedRef = useRef<boolean>(false);
+  const lastPayloadRef = useRef<string>('');
+
   const sym = ticker || 'ASIANPAINT.NS';
 
   // 1. Initial Load of Auto-seeded Defaults
@@ -108,10 +111,23 @@ export const DcfValuationView: React.FC<DcfValuationViewProps> = ({
       setData(resData);
 
       // Sync slider states from response
-      setFcfGrowthPct(Math.round(resData.growth_rate * 1000) / 10);
-      setWaccPct(Math.round(resData.wacc * 1000) / 10);
-      setTerminalGrowthPct(Math.round(resData.terminal_growth_rate * 1000) / 10);
-      setProjectionYears(resData.projection_years || 5);
+      const gPct = Math.round(resData.growth_rate * 1000) / 10;
+      const wPct = Math.round(resData.wacc * 1000) / 10;
+      const tPct = Math.round(resData.terminal_growth_rate * 1000) / 10;
+      const pYears = resData.projection_years || 5;
+
+      setFcfGrowthPct(gPct);
+      setWaccPct(wPct);
+      setTerminalGrowthPct(tPct);
+      setProjectionYears(pYears);
+
+      lastPayloadRef.current = JSON.stringify({
+        growth_rate: gPct / 100.0,
+        wacc: wPct / 100.0,
+        terminal_growth_rate: tPct / 100.0,
+        projection_years: pYears,
+      });
+      initialLoadedRef.current = true;
     } catch (err: any) {
       setError(err.message || 'Failed to calculate DCF model');
     } finally {
@@ -121,6 +137,8 @@ export const DcfValuationView: React.FC<DcfValuationViewProps> = ({
   };
 
   useEffect(() => {
+    initialLoadedRef.current = false;
+    lastPayloadRef.current = '';
     loadDcfData();
   }, [sym]);
 
@@ -128,19 +146,43 @@ export const DcfValuationView: React.FC<DcfValuationViewProps> = ({
   const spread = Math.round((waccPct - terminalGrowthPct) * 100) / 100;
   const isSpreadInvalid = spread <= 1.0;
 
-  // Handle Recalculate with Slider Values
-  const handleRecalculate = () => {
-    if (isSpreadInvalid) return;
-    loadDcfData({
+  // 400ms Debounced Auto-Recalculation when any slider moves
+  useEffect(() => {
+    if (!initialLoadedRef.current || isSpreadInvalid) return;
+
+    const payload = {
       growth_rate: fcfGrowthPct / 100.0,
       wacc: waccPct / 100.0,
       terminal_growth_rate: terminalGrowthPct / 100.0,
       projection_years: projectionYears,
-    });
+    };
+    const payloadStr = JSON.stringify(payload);
+    if (payloadStr === lastPayloadRef.current) return;
+
+    const timer = setTimeout(() => {
+      lastPayloadRef.current = payloadStr;
+      loadDcfData(payload);
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [fcfGrowthPct, waccPct, terminalGrowthPct, projectionYears, isSpreadInvalid]);
+
+  // Handle Recalculate with Slider Values
+  const handleRecalculate = () => {
+    if (isSpreadInvalid) return;
+    const payload = {
+      growth_rate: fcfGrowthPct / 100.0,
+      wacc: waccPct / 100.0,
+      terminal_growth_rate: terminalGrowthPct / 100.0,
+      projection_years: projectionYears,
+    };
+    lastPayloadRef.current = JSON.stringify(payload);
+    loadDcfData(payload);
   };
 
   // Reset Defaults
   const handleReset = () => {
+    lastPayloadRef.current = '';
     loadDcfData({});
   };
 

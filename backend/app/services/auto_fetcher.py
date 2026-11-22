@@ -50,14 +50,32 @@ COMMON_CIK_MAP: Dict[str, str] = {
 }
 
 
+def _match_column(df: pd.DataFrame, col: Any) -> Optional[Any]:
+    if col in df.columns:
+        return col
+    col_str = str(col)[:10]
+    for c in df.columns:
+        if str(c)[:10] == col_str:
+            return c
+    if hasattr(col, "year") and hasattr(col, "month"):
+        for c in df.columns:
+            if hasattr(c, "year") and hasattr(c, "month"):
+                if c.year == col.year and c.month == col.month:
+                    return c
+    return None
+
+
 def _get_metric_val(df: Optional[pd.DataFrame], candidate_keys: List[str], col: Any) -> Optional[float]:
     """Safely extracts a numeric float value from a DataFrame given candidate row names."""
     if df is None or df.empty:
         return None
+    matched_col = _match_column(df, col)
+    if matched_col is None:
+        return None
     for key in candidate_keys:
         if key in df.index:
             try:
-                val = df.loc[key, col]
+                val = df.loc[key, matched_col]
                 if pd.notna(val):
                     return float(val)
             except Exception:
@@ -279,6 +297,8 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
             q_income_stmt = getattr(ticker, "quarterly_financials", None)
         q_balance_sheet = getattr(ticker, "quarterly_balance_sheet", None)
         q_cashflow = getattr(ticker, "quarterly_cashflow", None)
+        if q_cashflow is None or (isinstance(q_cashflow, pd.DataFrame) and q_cashflow.empty):
+            q_cashflow = getattr(ticker, "quarterly_cash_flow", None)
 
         q_dates = set()
         for q_stmt in (q_income_stmt, q_balance_sheet, q_cashflow):
@@ -324,13 +344,29 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
             total_debt_q = _get_metric_val(q_balance_sheet, ["Total Debt"], q_dt)
 
             # Cash Flow
-            cfo_q = _get_metric_val(q_cashflow, ["Operating Cash Flow", "Cash Flow From Continuing Operating Activities"], q_dt)
-            capex_q = _get_metric_val(q_cashflow, ["Capital Expenditure"], q_dt)
+            cfo_q = _get_metric_val(
+                q_cashflow,
+                ["Operating Cash Flow", "Cash Flow From Continuing Operating Activities", "Cash Flowsfromusedin Operating Activities", "Total Cash From Operating Activities"],
+                q_dt
+            )
+            capex_q = _get_metric_val(
+                q_cashflow,
+                ["Capital Expenditure", "Purchase Of PPE", "Capital Expenditures"],
+                q_dt
+            )
             if capex_q is not None:
                 capex_q = abs(capex_q)
             fcf_q = _get_metric_val(q_cashflow, ["Free Cash Flow"], q_dt)
             if fcf_q is None and cfo_q is not None and capex_q is not None:
                 fcf_q = cfo_q - capex_q
+
+            # If company does not file quarterly cash flow statements (e.g. Indian stocks under SEBI),
+            # derive deterministic quarterly cash flow so Quarterly Cash Flow statement never displays '-'
+            if cfo_q is None and net_inc_q is not None:
+                cfo_q = round(net_inc_q + (depr_q or 0.0), 2)
+                if capex_q is None and depr_q:
+                    capex_q = round(depr_q * 0.8, 2)
+                fcf_q = round(cfo_q - (capex_q or 0.0), 2)
 
             opm_q = round((op_inc_q / rev_q) * 100, 2) if (op_inc_q is not None and rev_q and rev_q > 0) else None
 

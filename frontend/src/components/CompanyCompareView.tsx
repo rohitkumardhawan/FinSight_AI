@@ -13,6 +13,7 @@ import {
   CheckCircle2,
   Scale,
   ShieldAlert,
+  AlertTriangle,
   Calculator,
   HelpCircle
 } from 'lucide-react';
@@ -256,9 +257,13 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
   const getWinner = (
     valA?: number | null,
     valB?: number | null,
-    isLowerBetter: boolean = false
+    isLowerBetter: boolean = false,
+    isCurrency: boolean = false
   ): number => {
     if (valA === null || valA === undefined || valB === null || valB === undefined) return 0;
+    if (isCurrency && dataA?.currency && dataB?.currency && dataA.currency.toUpperCase() !== dataB.currency.toUpperCase()) {
+      return 0; // Cross-currency absolute values cannot be compared directly without FX normalization
+    }
     if (valA === valB) return 0;
     if (isLowerBetter) {
       return valA < valB ? 1 : -1;
@@ -282,7 +287,7 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
   let winsB = 0;
   if (dataA && dataB) {
     metricsList.forEach((m) => {
-      const w = getWinner((dataA as any)[m.key], (dataB as any)[m.key], m.isLowerBetter);
+      const w = getWinner((dataA as any)[m.key], (dataB as any)[m.key], m.isLowerBetter, m.isCurrency);
       if (w === 1) winsA++;
       else if (w === -1) winsB++;
     });
@@ -487,6 +492,21 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
         </div>
       )}
 
+      {/* Cross-Currency Warning Banner */}
+      {dataA && dataB && dataA.currency && dataB.currency && dataA.currency.toUpperCase() !== dataB.currency.toUpperCase() && (
+        <div className="bg-amber-500/10 border border-amber-500/30 rounded-2xl p-4 flex items-start gap-3 text-xs text-amber-200 shadow-md">
+          <AlertTriangle className="h-4 w-4 text-amber-400 flex-shrink-0 mt-0.5" />
+          <div className="space-y-1">
+            <div className="font-semibold text-amber-300">
+              Cross-Currency Comparison Notice ({dataA.currency} vs {dataB.currency})
+            </div>
+            <p className="text-slate-300 leading-relaxed text-[11px]">
+              Absolute monetary metrics (such as <span className="font-semibold text-white">Annual Revenue</span> and <span className="font-semibold text-white">Market Cap</span>) are displayed in each company&apos;s native reporting currency ({dataA.currency} for {dataA.symbol}, {dataB.currency} for {dataB.symbol}). Financial percentage margins, growth rates, returns (OPM %, Net Margin %, ROE %), and valuation multiples (P/E, Debt-to-Equity) are fully normalized and directly comparable.
+            </p>
+          </div>
+        </div>
+      )}
+
       {/* 3. DETAILED METRIC COMPARISON TABLE & VISUAL BARS */}
       {dataA && dataB && (
         <div className="bg-navy-900 border border-navy-800 rounded-2xl shadow-xl overflow-hidden">
@@ -508,7 +528,7 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
             {metricsList.map((m) => {
               const valA = (dataA as any)[m.key];
               const valB = (dataB as any)[m.key];
-              const winner = getWinner(valA, valB, m.isLowerBetter);
+              const winner = getWinner(valA, valB, m.isLowerBetter, m.isCurrency);
 
               // Format text
               const textA = m.isCurrency

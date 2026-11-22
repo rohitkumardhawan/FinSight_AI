@@ -1,7 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
-import { useRouter } from 'next/navigation';
+import { useRouter, useSearchParams } from 'next/navigation';
 import {
   TrendingUp,
   TrendingDown,
@@ -24,8 +24,11 @@ import {
   Users,
   Star,
   Newspaper,
-  Clock
+  Clock,
+  RotateCcw
 } from 'lucide-react';
+import { ChartRevenue } from '@/components/ChartRevenue';
+import { ChartProfitability } from '@/components/ChartProfitability';
 import { API_BASE } from '@/lib/api';
 import {
   formatFinancialValue,
@@ -54,6 +57,7 @@ interface CompanyDashboardViewProps {
   initialData?: any;
   onRefresh?: () => void;
   onSelectTicker?: (ticker: string) => void;
+  currentTab?: string;
 }
 
 export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
@@ -61,8 +65,11 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
   initialData,
   onRefresh,
   onSelectTicker,
+  currentTab,
 }) => {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const activeSection = currentTab || searchParams?.get('tab') || 'overview';
   const [data, setData] = useState<any>(initialData || null);
   const [loading, setLoading] = useState<boolean>(!initialData);
   const [isSlowLoading, setIsSlowLoading] = useState<boolean>(false);
@@ -441,83 +448,738 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
   );
   const displayPeriods = validPeriods.length > 0 ? validPeriods : periods;
 
-  return (
-    <div className="space-y-6">
-      {/* 1. INSTITUTIONAL COMPANY HEADER */}
-      <div className="bg-navy-900/80 backdrop-blur border border-navy-800 rounded-2xl p-5 sm:p-6 shadow-xl relative overflow-hidden">
-        <div className="absolute top-0 right-0 h-40 w-40 bg-gradient-to-br from-gold-500/5 to-transparent rounded-full blur-2xl pointer-events-none" />
+  const annualPeriods = displayPeriods.filter(
+    (p: any) => p.fiscal_year && p.statement_type !== 'quarterly' && (!p.fiscal_period || !p.fiscal_period.startsWith('Q'))
+  );
+  const latestPeriod = annualPeriods.length > 0 ? annualPeriods[annualPeriods.length - 1] : (displayPeriods[displayPeriods.length - 1] || {});
+  const latestOpm = latestPeriod.opm_pct ?? (latestPeriod.operating_income && latestPeriod.revenue ? (latestPeriod.operating_income / latestPeriod.revenue) * 100 : null);
+  const latestNetMargin = latestPeriod.net_margin_pct ?? (latestPeriod.net_income && latestPeriod.revenue ? (latestPeriod.net_income / latestPeriod.revenue) * 100 : null);
+  const latestGrossMargin = latestPeriod.gross_margin_pct ?? (latestPeriod.gross_profit && latestPeriod.revenue ? (latestPeriod.gross_profit / latestPeriod.revenue) * 100 : null);
+  const latestRoe = latestPeriod.roe_pct ?? (latestPeriod.net_income && latestPeriod.total_equity ? (latestPeriod.net_income / latestPeriod.total_equity) * 100 : null);
+  const latestFcf = latestPeriod.free_cash_flow;
+  const latestDebtToEquity = latestPeriod.debt_to_equity ?? (latestPeriod.total_debt && latestPeriod.total_equity ? latestPeriod.total_debt / latestPeriod.total_equity : null);
 
-        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div>
-            <div className="flex items-center gap-2.5 flex-wrap">
-              <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-                {company_name}
-              </h1>
-              <button
-                type="button"
-                onClick={toggleWatchlist}
-                className={`p-1.5 rounded-lg border transition-all ${
-                  isWatchlisted
-                    ? 'bg-gold-500/15 border-gold-500/40 text-gold-400 shadow-sm shadow-gold-500/20'
-                    : 'bg-navy-950/80 border-navy-700 text-slate-400 hover:text-gold-300 hover:border-gold-500/30'
-                }`}
-                title={isWatchlisted ? 'Remove from Watchlist' : 'Add to Personal Watchlist'}
-              >
-                <Star className={`h-4 w-4 ${isWatchlisted ? 'fill-gold-400 text-gold-400' : 'text-slate-400'}`} />
-              </button>
-              <span className="px-2 py-0.5 text-xs font-mono font-bold bg-navy-950 text-gold-400 border border-navy-700 rounded">
-                {symbol || 'EQUITY'}
-              </span>
-              <span className="px-2 py-0.5 text-xs font-semibold bg-navy-800 text-slate-300 border border-navy-700 rounded">
-                {normExchange}
-              </span>
-              {is_cached && (
-                <span className="px-2 py-0.5 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded flex items-center gap-1">
-                  <Database className="h-3 w-3" /> Neon Cache
-                </span>
-              )}
-              <span className="px-2 py-0.5 text-xs font-medium bg-blue-500/10 text-blue-300 border border-blue-500/30 rounded">
-                {data_source?.replace('_', ' ').toUpperCase()}
-              </span>
-            </div>
+  const chartData = displayPeriods.map((p: any) => ({
+    period: p.fiscal_period || (p.fiscal_year ? `FY${p.fiscal_year}` : 'FY'),
+    revenue: p.revenue || 0,
+    gross_profit: p.gross_profit || (p.revenue && p.cost_of_revenue ? p.revenue - p.cost_of_revenue : p.operating_income || 0),
+    net_income: p.net_income || 0,
+  }));
 
-            <p className="text-xs text-slate-400 mt-1 flex items-center gap-3">
-              <span>Currency: <strong className="text-slate-200">{currency} ({curSymbol})</strong></span>
-              {quote?.sector && <span>• Sector: <strong className="text-slate-200">{quote.sector}</strong></span>}
-              {last_synced_at && (
-                <span>• Last synced: <strong className="text-slate-300 font-mono text-[11px]">{new Date(last_synced_at).toLocaleString()}</strong></span>
-              )}
-            </p>
-          </div>
+  // 1. INSTITUTIONAL COMPANY HEADER
+  const renderHeader = () => (
+    <div className="bg-navy-900/80 backdrop-blur border border-navy-800 rounded-2xl p-5 sm:p-6 shadow-xl relative overflow-hidden">
+      <div className="absolute top-0 right-0 h-40 w-40 bg-gradient-to-br from-gold-500/5 to-transparent rounded-full blur-2xl pointer-events-none" />
 
-          {/* Price, Valuation & Refresh Button */}
-          <div className="flex items-center gap-3">
-            {quote?.current_price && (
-              <div className="text-right pr-4 border-r border-navy-800">
-                <div className="text-xs text-slate-400 font-medium">Market Price</div>
-                <div className="text-lg font-bold font-mono text-white">
-                  {formatPerShare(quote.current_price, currency)}
-                </div>
-                {quote?.trailing_pe && (
-                  <div className="text-[10px] text-gold-400 font-mono">
-                    P/E: {formatMultiple(quote.trailing_pe)}
-                  </div>
-                )}
-              </div>
-            )}
-
+      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+        <div>
+          <div className="flex items-center gap-2.5 flex-wrap">
+            <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
+              {company_name}
+            </h1>
             <button
-              onClick={() => fetchAnalysis(true)}
-              disabled={refreshing}
-              className="px-3.5 py-2 rounded-xl bg-navy-800 hover:bg-navy-750 text-slate-200 hover:text-white border border-navy-700 text-xs font-medium flex items-center gap-1.5 transition-all shadow-sm"
+              type="button"
+              onClick={toggleWatchlist}
+              className={`p-1.5 rounded-lg border transition-all ${
+                isWatchlisted
+                  ? 'bg-gold-500/15 border-gold-500/40 text-gold-400 shadow-sm shadow-gold-500/20'
+                  : 'bg-navy-950/80 border-navy-700 text-slate-400 hover:text-gold-300 hover:border-gold-500/30'
+              }`}
+              title={isWatchlisted ? 'Remove from Watchlist' : 'Add to Personal Watchlist'}
             >
-              <RefreshCw className={`h-3.5 w-3.5 text-gold-400 ${refreshing ? 'animate-spin' : ''}`} />
-              <span>{refreshing ? 'Syncing...' : 'Refresh Live Data'}</span>
+              <Star className={`h-4 w-4 ${isWatchlisted ? 'fill-gold-400 text-gold-400' : 'text-slate-400'}`} />
             </button>
+            <span className="px-2 py-0.5 text-xs font-mono font-bold bg-navy-950 text-gold-400 border border-navy-700 rounded">
+              {symbol || 'EQUITY'}
+            </span>
+            <span className="px-2 py-0.5 text-xs font-semibold bg-navy-800 text-slate-300 border border-navy-700 rounded">
+              {normExchange}
+            </span>
+            {is_cached && (
+              <span className="px-2 py-0.5 text-xs font-medium bg-emerald-500/10 text-emerald-400 border border-emerald-500/30 rounded flex items-center gap-1">
+                <Database className="h-3 w-3" /> Neon Cache
+              </span>
+            )}
+            <span className="px-2 py-0.5 text-xs font-medium bg-blue-500/10 text-blue-300 border border-blue-500/30 rounded">
+              {data_source?.replace('_', ' ').toUpperCase()}
+            </span>
           </div>
+
+          <p className="text-xs text-slate-400 mt-1 flex items-center gap-3">
+            <span>Currency: <strong className="text-slate-200">{currency} ({curSymbol})</strong></span>
+            {quote?.sector && <span>• Sector: <strong className="text-slate-200">{quote.sector}</strong></span>}
+            {last_synced_at && (
+              <span>• Last synced: <strong className="text-slate-300 font-mono text-[11px]">{new Date(last_synced_at).toLocaleString()}</strong></span>
+            )}
+          </p>
+        </div>
+
+        {/* Price, Valuation & Refresh Button */}
+        <div className="flex items-center gap-3">
+          {quote?.current_price && (
+            <div className="text-right pr-4 border-r border-navy-800">
+              <div className="text-xs text-slate-400 font-medium">Market Price</div>
+              <div className="text-lg font-bold font-mono text-white">
+                {formatPerShare(quote.current_price, currency)}
+              </div>
+              {quote?.trailing_pe && (
+                <div className="text-[10px] text-gold-400 font-mono">
+                  P/E: {formatMultiple(quote.trailing_pe)}
+                </div>
+              )}
+            </div>
+          )}
+
+          <button
+            onClick={() => fetchAnalysis(true)}
+            disabled={refreshing}
+            className="px-3.5 py-2 rounded-xl bg-navy-800 hover:bg-navy-750 text-slate-200 hover:text-white border border-navy-700 text-xs font-medium flex items-center gap-1.5 transition-all shadow-sm"
+          >
+            <RefreshCw className={`h-3.5 w-3.5 text-gold-400 ${refreshing ? 'animate-spin' : ''}`} />
+            <span>{refreshing ? 'Syncing...' : 'Refresh Live Data'}</span>
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+
+  // 2. SECTOR PEER COMPARISON TABLE (Shared)
+  const renderComparisonCell = (
+    val: number | null | undefined,
+    median: number | null | undefined,
+    formatted: string,
+    lowerIsBetter: boolean = false,
+    _higherIsBetter: boolean = true
+  ) => {
+    return renderMetricComparison(val, median, formatted.includes('%'), lowerIsBetter);
+  };
+
+  const renderPeerComparison = () => (
+    <div className="bg-navy-900/90 border border-navy-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-navy-800 pb-3">
+        <div>
+          <div className="flex items-center gap-2">
+            <span className="h-5 px-2 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+              <Users className="h-3 w-3" />
+              Institutional Peer Universe
+            </span>
+            <span className="text-xs text-slate-400 font-medium">
+              {peerData?.sector || quote?.sector || 'Sector'} Benchmark ({peerData?.count || 6} Equities)
+            </span>
+          </div>
+          <h2 className="text-base font-bold text-white mt-1 flex items-center gap-2">
+            <span>Automatic Sector Peer Comparison</span>
+            {loadingPeers && <RefreshCw className="h-3.5 w-3.5 animate-spin text-gold-400" />}
+          </h2>
+        </div>
+
+        <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium">
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
+            <span>Beats Median</span>
+          </span>
+          <span>•</span>
+          <span className="flex items-center gap-1">
+            <span className="inline-block h-2 w-2 rounded-full bg-rose-400" />
+            <span>Trails Median</span>
+          </span>
+          <span>•</span>
+          <span className="text-slate-500">Click peer to switch</span>
         </div>
       </div>
 
+      {loadingPeers && !peerData ? (
+        <div className="py-8 flex flex-col items-center justify-center text-center text-xs text-slate-400">
+          <RefreshCw className="h-5 w-5 animate-spin text-gold-400 mb-2" />
+          <span>Querying Neon Postgres universe for {quote?.sector || 'sector'} peers...</span>
+        </div>
+      ) : !peerData ? (
+        <div className="py-6 text-center text-xs text-slate-400">
+          Sector peer data currently calibrating.
+        </div>
+      ) : (
+        <div className="overflow-x-auto">
+          <table className="w-full text-xs text-left">
+            <thead>
+              <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase bg-navy-950/60">
+                <th className="py-2.5 px-3 font-semibold min-w-[200px]">Company</th>
+                <th className="py-2.5 px-3 text-right font-semibold">Price</th>
+                <th className="py-2.5 px-3 text-right font-semibold">Market Cap</th>
+                <th className="py-2.5 px-3 text-right font-semibold">P/E</th>
+                <th className="py-2.5 px-3 text-right font-semibold">OPM %</th>
+                <th className="py-2.5 px-3 text-right font-semibold">Net Margin %</th>
+                <th className="py-2.5 px-3 text-right font-semibold">ROE %</th>
+                <th className="py-2.5 px-3 text-right font-semibold">YoY Rev Growth</th>
+              </tr>
+            </thead>
+            <tbody className="divide-y divide-navy-800/40 font-mono">
+              {/* Active Company Highlight Row */}
+              {peerData.target && (
+                <tr className="bg-gold-500/10 border-l-4 border-l-gold-500 hover:bg-gold-500/15 transition-colors">
+                  <td className="py-3 px-3">
+                    <div className="flex items-center gap-2">
+                      <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-gold-500 text-navy-950 uppercase tracking-wider">
+                        Active
+                      </span>
+                      <div>
+                        <div className="font-sans font-bold text-white text-xs">
+                          {peerData.target.name}
+                        </div>
+                        <div className="text-[10px] text-gold-400 font-mono font-medium">
+                          {peerData.target.symbol}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-3 px-3 text-right text-white font-semibold">
+                    {formatPerShare(peerData.target.price, peerData.target.currency)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-slate-200">
+                    {formatFinancialValue(peerData.target.market_cap, peerData.target.currency)}
+                  </td>
+                  <td className="py-3 px-3 text-right">
+                    {renderComparisonCell(
+                      peerData.target.pe_ratio,
+                      peerData.sector_median?.pe_ratio,
+                      peerData.target.pe_ratio != null ? `${Number(peerData.target.pe_ratio).toFixed(2)}x` : '—',
+                      true,
+                      false
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-right">
+                    {renderComparisonCell(
+                      peerData.target.opm_pct,
+                      peerData.sector_median?.opm_pct,
+                      peerData.target.opm_pct != null ? `${Number(peerData.target.opm_pct).toFixed(2)}%` : '—',
+                      false,
+                      true
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-right">
+                    {renderComparisonCell(
+                      peerData.target.net_margin_pct,
+                      peerData.sector_median?.net_margin_pct,
+                      peerData.target.net_margin_pct != null ? `${Number(peerData.target.net_margin_pct).toFixed(2)}%` : '—',
+                      false,
+                      true
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-right">
+                    {renderComparisonCell(
+                      peerData.target.roe_pct,
+                      peerData.sector_median?.roe_pct,
+                      peerData.target.roe_pct != null ? `${Number(peerData.target.roe_pct).toFixed(2)}%` : '—',
+                      false,
+                      true
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-right">
+                    {renderComparisonCell(
+                      peerData.target.revenue_growth_pct,
+                      peerData.sector_median?.revenue_growth_pct,
+                      peerData.target.revenue_growth_pct != null ? `${Number(peerData.target.revenue_growth_pct).toFixed(2)}%` : '—',
+                      false,
+                      true
+                    )}
+                  </td>
+                </tr>
+              )}
+
+              {/* Peer Companies Rows */}
+              {(peerData.peers || []).map((peer: any) => (
+                <tr
+                  key={peer.symbol}
+                  onClick={() => handleSelectPeer(peer.symbol)}
+                  className="hover:bg-navy-800/60 cursor-pointer transition-colors group"
+                >
+                  <td className="py-3 px-3">
+                    <div className="flex items-center gap-2">
+                      <ChevronRight className="h-3 w-3 text-slate-500 group-hover:text-gold-400 group-hover:translate-x-0.5 transition-all" />
+                      <div>
+                        <div className="font-sans font-medium text-slate-200 group-hover:text-gold-300 text-xs transition-colors">
+                          {peer.name}
+                        </div>
+                        <div className="text-[10px] text-slate-400 font-mono">
+                          {peer.symbol}
+                        </div>
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-3 px-3 text-right text-slate-200">
+                    {formatPerShare(peer.price, peer.currency)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-slate-300">
+                    {formatFinancialValue(peer.market_cap, peer.currency)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-slate-200">
+                    {renderComparisonCell(
+                      peer.pe_ratio,
+                      peerData.sector_median?.pe_ratio,
+                      peer.pe_ratio != null ? `${Number(peer.pe_ratio).toFixed(2)}x` : '—',
+                      true,
+                      false
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-right text-slate-200">
+                    {renderComparisonCell(
+                      peer.opm_pct,
+                      peerData.sector_median?.opm_pct,
+                      peer.opm_pct != null ? `${Number(peer.opm_pct).toFixed(2)}%` : '—',
+                      false,
+                      true
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-right text-slate-200">
+                    {renderComparisonCell(
+                      peer.net_margin_pct,
+                      peerData.sector_median?.net_margin_pct,
+                      peer.net_margin_pct != null ? `${Number(peer.net_margin_pct).toFixed(2)}%` : '—',
+                      false,
+                      true
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-right text-slate-200">
+                    {renderComparisonCell(
+                      peer.roe_pct,
+                      peerData.sector_median?.roe_pct,
+                      peer.roe_pct != null ? `${Number(peer.roe_pct).toFixed(2)}%` : '—',
+                      false,
+                      true
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-right text-slate-200">
+                    {renderComparisonCell(
+                      peer.revenue_growth_pct,
+                      peerData.sector_median?.revenue_growth_pct,
+                      peer.revenue_growth_pct != null ? `${Number(peer.revenue_growth_pct).toFixed(2)}%` : '—',
+                      false,
+                      true
+                    )}
+                  </td>
+                </tr>
+              ))}
+
+              {/* Sector Median Benchmark Row */}
+              {peerData.sector_median && (
+                <tr className="bg-cyan-950/20 font-bold border-t-2 border-cyan-500/30">
+                  <td className="py-3 px-3">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono">
+                        MEDIAN
+                      </span>
+                      <div className="font-sans text-xs text-white">
+                        {peerData.sector_median.name}
+                      </div>
+                    </div>
+                  </td>
+                  <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                    {formatPerShare(peerData.sector_median.price, peerData.sector_median.currency)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                    {formatFinancialValue(peerData.sector_median.market_cap, peerData.sector_median.currency)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                    {formatMultiple(peerData.sector_median.pe_ratio)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                    {formatPercent(peerData.sector_median.opm_pct)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                    {formatPercent(peerData.sector_median.net_margin_pct)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                    {formatPercent(peerData.sector_median.roe_pct)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                    {formatPercent(peerData.sector_median.revenue_growth_pct)}
+                  </td>
+                </tr>
+              )}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </div>
+  );
+
+  // 3. DEDICATED COMPANY ANALYSIS WORKSPACE (?tab=company-analysis)
+  const renderCompanyAnalysisWorkspace = () => {
+    const cagrHeaders = trends?.headers || ['3 YEARS', '5 YEARS'];
+    const cagrMetrics = trends?.metrics || {};
+
+    return (
+      <div className="space-y-6">
+        {/* Sector Peer Comparison Table */}
+        {renderPeerComparison()}
+
+        {/* Historical Multi-Year CAGRs Matrix */}
+        <div className="bg-navy-900 border border-navy-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-navy-800 pb-3">
+            <div className="flex items-center gap-2">
+              <span className="h-5 px-2 rounded bg-gold-500/10 text-gold-400 border border-gold-500/30 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                <TrendingUp className="h-3 w-3" />
+                Growth Matrix
+              </span>
+              <h2 className="text-base font-bold text-white">
+                Historical Multi-Year Compound Annual Growth Rates (CAGRs)
+              </h2>
+            </div>
+            <span className="text-xs text-slate-400 font-mono">
+              Audited Historical Financial Trajectory
+            </span>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase bg-navy-950/60">
+                  <th className="py-3 px-4 font-semibold min-w-[220px]">Metric</th>
+                  {cagrHeaders.map((h: string, idx: number) => (
+                    <th key={idx} className="py-3 px-4 text-right font-bold text-white min-w-[110px]">
+                      {h}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-navy-800/40 font-mono">
+                {[
+                  { key: 'sales_growth', label: 'Sales / Revenue CAGR' },
+                  { key: 'ebit_growth', label: 'Operating Profit (EBIT) CAGR' },
+                  { key: 'net_profit_growth', label: 'Net Profit CAGR' },
+                  { key: 'eps_growth', label: 'Diluted EPS CAGR' },
+                  { key: 'fcf_growth', label: 'Free Cash Flow (FCF) CAGR' },
+                ].map((row, rIdx) => {
+                  const metricMap = cagrMetrics[row.key] || {};
+                  return (
+                    <tr key={rIdx} className="hover:bg-navy-800/40 transition-colors">
+                      <td className="py-3 px-4 font-sans font-semibold text-slate-200">
+                        {row.label}
+                      </td>
+                      {cagrHeaders.map((h: string, hIdx: number) => {
+                        const val = metricMap[h];
+                        const isPos = val != null && val >= 0;
+                        return (
+                          <td key={hIdx} className="py-3 px-4 text-right">
+                            {val != null ? (
+                              <span className={`font-bold ${isPos ? 'text-emerald-400' : 'text-rose-400'}`}>
+                                {isPos ? '+' : ''}{Number(val).toFixed(2)}%
+                              </span>
+                            ) : (
+                              <span className="text-slate-500">—</span>
+                            )}
+                          </td>
+                        );
+                      })}
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        {/* Margin & Growth Trend Charts */}
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+          <div className="bg-navy-900 border border-navy-800 rounded-2xl p-5 shadow-xl">
+            <div className="flex items-center justify-between mb-4 border-b border-navy-800 pb-3">
+              <div className="flex items-center gap-2">
+                <BarChart3 className="h-4 w-4 text-gold-400" />
+                <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Revenue & Net Profit Trajectory
+                </h3>
+              </div>
+              <span className="text-[10px] font-mono text-slate-400">Multi-Period Horizon</span>
+            </div>
+            <ChartRevenue data={chartData} ticker={symbol} />
+          </div>
+
+          <ChartProfitability
+            grossMargin={latestGrossMargin}
+            operatingMargin={latestOpm}
+            netMargin={latestNetMargin}
+          />
+        </div>
+
+        {/* Multi-Period Margin Trends Breakdown */}
+        <div className="bg-navy-900 border border-navy-800 rounded-2xl p-5 shadow-xl space-y-3">
+          <div className="flex items-center justify-between border-b border-navy-800 pb-2.5">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+              Historical Margin Evolution
+            </h3>
+            <span className="text-xs text-slate-400 font-mono">Annual Reporting Periods</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase bg-navy-950/60">
+                  <th className="py-2.5 px-3 font-semibold min-w-[200px]">Margin Ratio</th>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <th key={idx} className="py-2.5 px-3 text-right font-mono font-bold text-white">
+                      {p.fiscal_period || (p.fiscal_year ? `FY${p.fiscal_year}` : 'FY')}
+                    </th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-navy-800/40 font-mono">
+                <tr>
+                  <td className="py-2.5 px-3 font-sans font-medium text-slate-300">Gross Margin %</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const gm = p.gross_margin_pct ?? (p.gross_profit && p.revenue ? (p.gross_profit / p.revenue) * 100 : null);
+                    return (
+                      <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
+                        {formatPercent(gm)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
+                  <td className="py-2.5 px-3 font-sans font-medium text-slate-300">Operating Margin (OPM) %</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const op = p.opm_pct ?? (p.operating_income && p.revenue ? (p.operating_income / p.revenue) * 100 : null);
+                    return (
+                      <td key={idx} className="py-2.5 px-3 text-right text-gold-300 font-semibold">
+                        {formatPercent(op)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
+                  <td className="py-2.5 px-3 font-sans font-medium text-slate-300">Net Profit Margin %</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const nm = p.net_margin_pct ?? (p.net_income && p.revenue ? (p.net_income / p.revenue) * 100 : null);
+                    return (
+                      <td key={idx} className="py-2.5 px-3 text-right text-emerald-400 font-semibold">
+                        {formatPercent(nm)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
+                  <td className="py-2.5 px-3 font-sans font-medium text-slate-300">FCF Margin %</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const fcfm = p.fcf_margin_pct ?? (p.free_cash_flow && p.revenue ? (p.free_cash_flow / p.revenue) * 100 : null);
+                    return (
+                      <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
+                        {formatPercent(fcfm)}
+                      </td>
+                    );
+                  })}
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // 4. DEDICATED FULL-HEIGHT AI RESEARCH ASSISTANT WORKSPACE (?tab=ai-research)
+  const renderAiResearchWorkspace = () => {
+    return (
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
+        {/* Left/Main Conversation Workspace */}
+        <div className="lg:col-span-2 bg-navy-900 border border-navy-800 rounded-2xl p-5 sm:p-6 shadow-xl flex flex-col space-y-4">
+          <div className="flex items-center justify-between border-b border-navy-800 pb-3">
+            <div className="flex items-center gap-2.5">
+              <Sparkles className="h-5 w-5 text-gold-400" />
+              <div>
+                <h2 className="text-sm font-bold text-white uppercase tracking-wider">
+                  Dedicated AI Analyst Research Workspace
+                </h2>
+                <div className="text-[10px] text-slate-400 font-mono">
+                  Gemini Flash RAG • Cosine Similarity over Verified Neon Postgres Vectors
+                </div>
+              </div>
+            </div>
+            <button
+              onClick={() => setChatHistory([])}
+              className="text-[10px] text-slate-400 hover:text-white px-2.5 py-1 rounded-lg bg-navy-800 hover:bg-navy-750 border border-navy-700 transition-colors flex items-center gap-1"
+            >
+              <RotateCcw className="h-3 w-3" />
+              <span>Clear Chat</span>
+            </button>
+          </div>
+
+          {/* Clickable Starter Prompt Chips */}
+          <div className="flex items-center gap-2 overflow-x-auto pb-1 scrollbar-thin">
+            <span className="text-[10px] text-slate-400 uppercase font-semibold whitespace-nowrap flex items-center gap-1">
+              <Sparkles className="h-3 w-3 text-gold-400" /> Starters:
+            </span>
+            {[
+              "Is cash generation healthy?",
+              "Summarize key financial risks",
+              "Explain valuation vs peers",
+              "What drove the OPM expansion or contraction?",
+              "Analyze balance sheet solvency & debt burden"
+            ].map((pText, i) => (
+              <button
+                key={i}
+                onClick={() => handleAsk(pText)}
+                disabled={asking}
+                className="text-xs px-3 py-1.5 rounded-full bg-navy-800 hover:bg-navy-750 text-slate-300 hover:text-gold-300 border border-navy-700 hover:border-gold-500/40 whitespace-nowrap transition-all flex-shrink-0 disabled:opacity-50"
+              >
+                {pText}
+              </button>
+            ))}
+          </div>
+
+          {/* Scrollable Conversation History */}
+          <div className="min-h-[440px] max-h-[580px] overflow-y-auto pr-2 space-y-4 bg-navy-950/70 rounded-xl p-4 border border-navy-800/80">
+            {chatHistory.map((msg, idx) => (
+              <div
+                key={idx}
+                className={`p-4 rounded-xl text-xs leading-relaxed ${
+                  msg.role === 'user'
+                    ? 'bg-navy-800 text-white ml-8 border border-navy-700 shadow-sm'
+                    : 'bg-navy-900 text-slate-200 mr-2 border border-navy-750 shadow-md'
+                }`}
+              >
+                <div className="flex items-center justify-between mb-1.5">
+                  <span className="font-bold text-[10px] uppercase font-mono tracking-wider text-gold-400">
+                    {msg.role === 'user' ? 'Analyst Inquiry' : 'Institutional Synthesis'}
+                  </span>
+                  <span className="text-[9px] text-slate-500 font-mono">
+                    {msg.role === 'user' ? 'Prompt' : 'Gemini Flash RAG'}
+                  </span>
+                </div>
+                <div className="whitespace-pre-line text-xs">{msg.content}</div>
+
+                {msg.citations && msg.citations.length > 0 && (
+                  <div className="mt-3 pt-2.5 border-t border-navy-800 flex items-center gap-1.5 flex-wrap">
+                    <span className="text-[10px] text-slate-400 font-medium">Grounded Sources:</span>
+                    {msg.citations.map((cite, cIdx) => (
+                      <span
+                        key={cIdx}
+                        className="px-2 py-0.5 text-[9px] font-mono bg-navy-950 border border-navy-750 text-gold-300 rounded"
+                        title={cite.snippet}
+                      >
+                        {cite.source_ref}
+                      </span>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ))}
+
+            {asking && (
+              <div className="p-4 rounded-xl text-xs bg-navy-900 border border-navy-750 text-slate-300 flex items-center gap-3">
+                <RefreshCw className="h-4 w-4 text-gold-400 animate-spin flex-shrink-0" />
+                <span>Synthesizing research answer from financial statements and pgvector embeddings...</span>
+              </div>
+            )}
+          </div>
+
+          {/* Interactive Question Input Form */}
+          <form
+            onSubmit={(e) => {
+              e.preventDefault();
+              handleAsk();
+            }}
+            className="flex items-center gap-2 pt-1"
+          >
+            <input
+              type="text"
+              value={question}
+              onChange={(e) => setQuestion(e.target.value)}
+              disabled={asking}
+              placeholder={`Ask institutional research question about ${company_name} (e.g. Is cash generation healthy?)...`}
+              className="flex-1 bg-navy-950 border border-navy-700 focus:border-gold-500/50 rounded-xl px-4 py-3 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
+            />
+            <button
+              type="submit"
+              disabled={asking || !question.trim()}
+              className="px-5 py-3 rounded-xl bg-gold-500 hover:bg-gold-450 disabled:bg-slate-800 text-navy-950 disabled:text-slate-500 font-bold text-xs flex items-center gap-1.5 transition-all shadow-md"
+            >
+              <Send className="h-3.5 w-3.5" />
+              <span>Ask AI</span>
+            </button>
+          </form>
+        </div>
+
+        {/* Right Panel: Key Metrics + Citations Grounding Reference */}
+        <div className="space-y-4">
+          {/* Key Metrics Summary Card */}
+          <div className="bg-navy-900 border border-navy-800 rounded-2xl p-5 shadow-xl space-y-3">
+            <div className="flex items-center justify-between border-b border-navy-800 pb-2.5">
+              <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                Active Key Metrics
+              </h3>
+              <span className="text-[10px] font-mono text-gold-400 font-bold">{symbol}</span>
+            </div>
+            <div className="space-y-2.5 text-xs font-mono">
+              <div className="flex justify-between items-center py-1 border-b border-navy-800/40">
+                <span className="text-slate-400 font-sans">Market Price</span>
+                <span className="text-white font-bold">{formatPerShare(quote?.current_price, currency)}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-navy-800/40">
+                <span className="text-slate-400 font-sans">Trailing P/E</span>
+                <span className="text-gold-300 font-bold">{formatMultiple(quote?.trailing_pe)}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-navy-800/40">
+                <span className="text-slate-400 font-sans">Market Cap</span>
+                <span className="text-slate-200">{formatFinancialValue(quote?.market_cap, currency)}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-navy-800/40">
+                <span className="text-slate-400 font-sans">Operating Margin (OPM)</span>
+                <span className="text-emerald-400 font-bold">{formatPercent(latestOpm)}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-navy-800/40">
+                <span className="text-slate-400 font-sans">Net Margin</span>
+                <span className="text-emerald-400 font-bold">{formatPercent(latestNetMargin)}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-navy-800/40">
+                <span className="text-slate-400 font-sans">Return on Equity (ROE)</span>
+                <span className="text-gold-300 font-bold">{formatPercent(latestRoe)}</span>
+              </div>
+              <div className="flex justify-between items-center py-1 border-b border-navy-800/40">
+                <span className="text-slate-400 font-sans">Free Cash Flow</span>
+                <span className="text-emerald-300 font-bold">{formatFinancialValue(latestFcf, currency)}</span>
+              </div>
+              <div className="flex justify-between items-center py-1">
+                <span className="text-slate-400 font-sans">Debt-to-Equity</span>
+                <span className="text-slate-200">{formatMultiple(latestDebtToEquity)}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* Grounding Sources Card */}
+          <div className="bg-navy-900 border border-navy-800 rounded-2xl p-5 shadow-xl space-y-3">
+            <div className="flex items-center gap-2 border-b border-navy-800 pb-2.5">
+              <Database className="h-3.5 w-3.5 text-cyan-400" />
+              <h3 className="text-xs font-bold uppercase tracking-wider text-white">
+                Grounded Knowledge Sources
+              </h3>
+            </div>
+            <p className="text-[11px] text-slate-400 leading-relaxed">
+              Synthesis answers are grounded directly in deterministic income statements, balance sheets, cash flows, and risk intelligence in Neon PostgreSQL.
+            </p>
+            <div className="space-y-1.5 pt-1">
+              <div className="text-[10px] font-mono px-2.5 py-1.5 rounded bg-navy-950 border border-navy-800 text-slate-300 flex items-center justify-between">
+                <span>Income Statements</span>
+                <span className="text-emerald-400">Audited FY</span>
+              </div>
+              <div className="text-[10px] font-mono px-2.5 py-1.5 rounded bg-navy-950 border border-navy-800 text-slate-300 flex items-center justify-between">
+                <span>Balance Sheets</span>
+                <span className="text-emerald-400">Verified</span>
+              </div>
+              <div className="text-[10px] font-mono px-2.5 py-1.5 rounded bg-navy-950 border border-navy-800 text-slate-300 flex items-center justify-between">
+                <span>Cash Flow Statements</span>
+                <span className="text-emerald-400">Grounded</span>
+              </div>
+              <div className="text-[10px] font-mono px-2.5 py-1.5 rounded bg-navy-950 border border-navy-800 text-slate-300 flex items-center justify-between">
+                <span>Risk Scorecard</span>
+                <span className="text-cyan-400">4-Pillar Score</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // 5. STANDARD EXECUTIVE OVERVIEW WORKSPACE (?tab=overview)
+  const renderOverviewWorkspace = () => (
+    <div className="space-y-6">
       {/* 2. INSTITUTIONAL KPI SUMMARY STRIP */}
       {kpis.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
@@ -646,194 +1308,8 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
         </div>
       )}
 
-      {/* 3b. AUTOMATIC SECTOR PEER COMPARISON TABLE (Feature 1) */}
-      <div className="bg-navy-900/90 border border-navy-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
-        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-navy-800 pb-3">
-          <div>
-            <div className="flex items-center gap-2">
-              <span className="h-5 px-2 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
-                <Users className="h-3 w-3" />
-                Institutional Peer Universe
-              </span>
-              <span className="text-xs text-slate-400 font-medium">
-                {peerData?.sector || quote?.sector || 'Sector'} Benchmark ({peerData?.count || 6} Equities)
-              </span>
-            </div>
-            <h2 className="text-base font-bold text-white mt-1 flex items-center gap-2">
-              <span>Automatic Sector Peer Comparison</span>
-              {loadingPeers && <RefreshCw className="h-3.5 w-3.5 animate-spin text-gold-400" />}
-            </h2>
-          </div>
-
-          <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium">
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
-              <span>Beats Median</span>
-            </span>
-            <span>•</span>
-            <span className="flex items-center gap-1">
-              <span className="inline-block h-2 w-2 rounded-full bg-rose-400" />
-              <span>Trails Median</span>
-            </span>
-            <span>•</span>
-            <span className="text-slate-500">Click peer to switch</span>
-          </div>
-        </div>
-
-        {loadingPeers && !peerData ? (
-          <div className="py-8 flex flex-col items-center justify-center text-center text-xs text-slate-400">
-            <RefreshCw className="h-5 w-5 animate-spin text-gold-400 mb-2" />
-            <span>Querying Neon Postgres 301-company universe for {quote?.sector || 'sector'} peers...</span>
-          </div>
-        ) : !peerData ? (
-          <div className="py-6 text-center text-xs text-slate-400">
-            Sector peer data currently calibrating.
-          </div>
-        ) : (
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead>
-                <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase bg-navy-950/60">
-                  <th className="py-2.5 px-3 font-semibold min-w-[200px]">Company</th>
-                  <th className="py-2.5 px-3 text-right font-semibold">Price</th>
-                  <th className="py-2.5 px-3 text-right font-semibold">Market Cap</th>
-                  <th className="py-2.5 px-3 text-right font-semibold">P/E</th>
-                  <th className="py-2.5 px-3 text-right font-semibold">OPM %</th>
-                  <th className="py-2.5 px-3 text-right font-semibold">Net Margin %</th>
-                  <th className="py-2.5 px-3 text-right font-semibold">ROE %</th>
-                  <th className="py-2.5 px-3 text-right font-semibold">YoY Rev Growth</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-navy-800/40 font-mono">
-                {/* Active Company Highlight Row */}
-                {peerData.target && (
-                  <tr className="bg-gold-500/10 border-l-4 border-l-gold-500 hover:bg-gold-500/15 transition-colors">
-                    <td className="py-3 px-3">
-                      <div className="flex items-center gap-2">
-                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-gold-500 text-navy-950 uppercase tracking-wider">
-                          Active
-                        </span>
-                        <div>
-                          <div className="font-sans font-bold text-white text-xs">
-                            {peerData.target.name}
-                          </div>
-                          <div className="text-[10px] text-gold-400 font-mono font-medium">
-                            {peerData.target.symbol}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 text-right text-white font-semibold">
-                      {formatPerShare(peerData.target.price, peerData.target.currency)}
-                    </td>
-                    <td className="py-3 px-3 text-right text-slate-200">
-                      {formatFinancialValue(peerData.target.market_cap, peerData.target.currency)}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      {renderMetricComparison(peerData.target.pe_ratio, peerData.sector_median?.pe_ratio, false, true)}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      {renderMetricComparison(peerData.target.opm_pct, peerData.sector_median?.opm_pct, true, false)}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      {renderMetricComparison(peerData.target.net_margin_pct, peerData.sector_median?.net_margin_pct, true, false)}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      {renderMetricComparison(peerData.target.roe_pct, peerData.sector_median?.roe_pct, true, false)}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      {renderMetricComparison(peerData.target.revenue_growth_pct, peerData.sector_median?.revenue_growth_pct, true, false)}
-                    </td>
-                  </tr>
-                )}
-
-                {/* Peer Companies Rows */}
-                {(peerData.peers || []).map((peer: any, idx: number) => (
-                  <tr
-                    key={idx}
-                    onClick={() => handleSelectPeer(peer.symbol)}
-                    className="hover:bg-navy-800/60 cursor-pointer transition-colors group"
-                    title={`Click to analyze ${peer.name} (${peer.symbol})`}
-                  >
-                    <td className="py-3 px-3">
-                      <div className="flex items-center gap-1.5">
-                        <ChevronRight className="h-3 w-3 text-slate-500 group-hover:text-gold-400 transition-colors" />
-                        <div>
-                          <div className="font-sans font-medium text-slate-200 group-hover:text-gold-300 transition-colors flex items-center gap-1">
-                            <span>{peer.name}</span>
-                            <ExternalLink className="h-2.5 w-2.5 text-slate-500 group-hover:text-gold-400" />
-                          </div>
-                          <div className="text-[10px] text-slate-400 font-mono">
-                            {peer.symbol}
-                          </div>
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 text-right text-slate-300 font-mono">
-                      {formatPerShare(peer.price, peer.currency)}
-                    </td>
-                    <td className="py-3 px-3 text-right text-slate-300 font-mono">
-                      {formatFinancialValue(peer.market_cap, peer.currency)}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      {renderMetricComparison(peer.pe_ratio, peerData.sector_median?.pe_ratio, false, true)}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      {renderMetricComparison(peer.opm_pct, peerData.sector_median?.opm_pct, true, false)}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      {renderMetricComparison(peer.net_margin_pct, peerData.sector_median?.net_margin_pct, true, false)}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      {renderMetricComparison(peer.roe_pct, peerData.sector_median?.roe_pct, true, false)}
-                    </td>
-                    <td className="py-3 px-3 text-right">
-                      {renderMetricComparison(peer.revenue_growth_pct, peerData.sector_median?.revenue_growth_pct, true, false)}
-                    </td>
-                  </tr>
-                ))}
-
-                {/* Sector Median Benchmark Row */}
-                {peerData.sector_median && (
-                  <tr className="bg-navy-950/90 border-t-2 border-t-gold-500/40 font-bold">
-                    <td className="py-3 px-3">
-                      <div className="flex items-center gap-2">
-                        <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono">
-                          MEDIAN
-                        </span>
-                        <div className="font-sans text-xs text-white">
-                          {peerData.sector_median.name}
-                        </div>
-                      </div>
-                    </td>
-                    <td className="py-3 px-3 text-right text-cyan-300 font-mono">
-                      {formatPerShare(peerData.sector_median.price, peerData.sector_median.currency)}
-                    </td>
-                    <td className="py-3 px-3 text-right text-cyan-300 font-mono">
-                      {formatFinancialValue(peerData.sector_median.market_cap, peerData.sector_median.currency)}
-                    </td>
-                    <td className="py-3 px-3 text-right text-cyan-300 font-mono">
-                      {formatMultiple(peerData.sector_median.pe_ratio)}
-                    </td>
-                    <td className="py-3 px-3 text-right text-cyan-300 font-mono">
-                      {formatPercent(peerData.sector_median.opm_pct)}
-                    </td>
-                    <td className="py-3 px-3 text-right text-cyan-300 font-mono">
-                      {formatPercent(peerData.sector_median.net_margin_pct)}
-                    </td>
-                    <td className="py-3 px-3 text-right text-cyan-300 font-mono">
-                      {formatPercent(peerData.sector_median.roe_pct)}
-                    </td>
-                    <td className="py-3 px-3 text-right text-cyan-300 font-mono">
-                      {formatPercent(peerData.sector_median.revenue_growth_pct)}
-                    </td>
-                  </tr>
-                )}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </div>
+      {/* 3b. AUTOMATIC SECTOR PEER COMPARISON TABLE */}
+      {renderPeerComparison()}
 
       {/* 3c. LIVE COMPANY MARKET NEWS FEED */}
       <div className="bg-navy-900/90 border border-navy-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
@@ -920,7 +1396,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
         <div className="flex items-center gap-1 border-b border-navy-800 px-4 py-2.5 overflow-x-auto bg-navy-950/50">
           <button
             onClick={() => setActiveTab('income')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
               activeTab === 'income' ? 'bg-gold-500/20 text-gold-300 border border-gold-500/40' : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -928,7 +1404,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('balance')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
               activeTab === 'balance' ? 'bg-gold-500/20 text-gold-300 border border-gold-500/40' : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -936,7 +1412,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
           </button>
           <button
             onClick={() => setActiveTab('cashflow')}
-            className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+            className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
               activeTab === 'cashflow' ? 'bg-gold-500/20 text-gold-300 border border-gold-500/40' : 'text-slate-400 hover:text-white'
             }`}
           >
@@ -945,11 +1421,11 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
           {trends && (
             <button
               onClick={() => setActiveTab('trends')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+              className={`px-3.5 py-1.5 rounded-lg text-xs font-semibold transition-all ${
                 activeTab === 'trends' ? 'bg-gold-500/20 text-gold-300 border border-gold-500/40' : 'text-slate-400 hover:text-white'
               }`}
             >
-              Multi-Year Trends Matrix
+              Trends & Horizons
             </button>
           )}
         </div>
@@ -960,17 +1436,17 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
             <table className="w-full text-xs text-left">
               <thead>
                 <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase">
-                  <th className="py-2.5 pr-4 font-semibold">Metric ({getUnitLabel(currency)})</th>
+                  <th className="py-2.5 pr-4 font-semibold">Line Item</th>
                   {displayPeriods.map((p: any, idx: number) => (
                     <th key={idx} className="py-2.5 px-3 text-right font-semibold">
-                      {p.fiscal_period || `FY${p.fiscal_year}`}
+                      {p.fiscal_period || (p.fiscal_year ? `FY${p.fiscal_year}` : 'FY')}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-navy-800/40 font-mono">
                 <tr>
-                  <td className="py-2.5 pr-4 text-white font-sans font-semibold">Sales / Revenue</td>
+                  <td className="py-2.5 pr-4 text-white font-sans font-semibold">Total Revenue</td>
                   {displayPeriods.map((p: any, idx: number) => (
                     <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
                       {formatFinancialValue(p.revenue, currency)}
@@ -978,74 +1454,37 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                   ))}
                 </tr>
                 <tr>
-                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Operating Expenses</td>
+                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Operating Income (EBIT)</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
-                      {formatFinancialValue(p.operating_expenses, currency)}
-                    </td>
-                  ))}
-                </tr>
-                <tr className="bg-navy-950/30">
-                  <td className="py-2.5 pr-4 text-emerald-400 font-sans font-semibold">Operating Profit</td>
-                  {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-emerald-300 font-bold">
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
                       {formatFinancialValue(p.operating_income, currency)}
                     </td>
                   ))}
                 </tr>
                 <tr>
-                  <td className="py-2.5 pr-4 text-slate-300 font-sans">OPM %</td>
-                  {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-gold-400">
-                      {p.opm_pct !== null && p.opm_pct !== undefined ? formatPercent(p.opm_pct) : '—'}
-                    </td>
-                  ))}
+                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Operating Margin (OPM %)</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const opmVal = p.opm_pct ?? (p.operating_income && p.revenue ? (p.operating_income / p.revenue) * 100 : null);
+                    return (
+                      <td key={idx} className="py-2.5 px-3 text-right text-gold-300 font-semibold">
+                        {formatPercent(opmVal)}
+                      </td>
+                    );
+                  })}
                 </tr>
-                <tr>
-                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Other Income</td>
+                <tr className="bg-navy-950/30">
+                  <td className="py-2.5 pr-4 text-emerald-400 font-sans font-semibold">Net Income</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
-                      {formatFinancialValue(p.other_income, currency)}
-                    </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Depreciation</td>
-                  {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
-                      {formatFinancialValue(p.depreciation_amortization, currency)}
-                    </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Interest Expense</td>
-                  {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
-                      {formatFinancialValue(p.interest_expense, currency)}
-                    </td>
-                  ))}
-                </tr>
-                <tr className="bg-navy-950/40">
-                  <td className="py-2.5 pr-4 text-white font-sans font-semibold">Net Profit</td>
-                  {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-white font-bold">
+                    <td key={idx} className="py-2.5 px-3 text-right text-emerald-300 font-bold">
                       {formatFinancialValue(p.net_income, currency)}
                     </td>
                   ))}
                 </tr>
                 <tr>
-                  <td className="py-2.5 pr-4 text-slate-300 font-sans">EPS</td>
+                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Diluted EPS</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-300">
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
                       {formatPerShare(p.eps, currency)}
-                    </td>
-                  ))}
-                </tr>
-                <tr>
-                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Price to Earning (P/E)</td>
-                  {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
-                      {formatMultiple(p.pe_ratio)}
                     </td>
                   ))}
                 </tr>
@@ -1057,10 +1496,10 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
             <table className="w-full text-xs text-left">
               <thead>
                 <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase">
-                  <th className="py-2.5 pr-4 font-semibold">Balance Sheet Items ({getUnitLabel(currency)})</th>
+                  <th className="py-2.5 pr-4 font-semibold">Line Item</th>
                   {displayPeriods.map((p: any, idx: number) => (
                     <th key={idx} className="py-2.5 px-3 text-right font-semibold">
-                      {p.fiscal_period || `FY${p.fiscal_year}`}
+                      {p.fiscal_period || (p.fiscal_year ? `FY${p.fiscal_year}` : 'FY')}
                     </th>
                   ))}
                 </tr>
@@ -1075,34 +1514,26 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                   ))}
                 </tr>
                 <tr>
-                  <td className="py-2.5 pr-4 text-slate-300 font-sans">Current Assets</td>
-                  {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
-                      {formatFinancialValue(p.current_assets, currency)}
-                    </td>
-                  ))}
-                </tr>
-                <tr>
                   <td className="py-2.5 pr-4 text-slate-300 font-sans">Total Liabilities</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
                       {formatFinancialValue(p.total_liabilities, currency)}
-                    </td>
-                  ))}
-                </tr>
-                <tr className="bg-navy-950/30">
-                  <td className="py-2.5 pr-4 text-emerald-400 font-sans font-semibold">Stockholders Equity / Net Worth</td>
-                  {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-emerald-300 font-bold">
-                      {formatFinancialValue(p.total_equity, currency)}
                     </td>
                   ))}
                 </tr>
                 <tr>
                   <td className="py-2.5 pr-4 text-slate-300 font-sans">Total Debt</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
+                    <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
                       {formatFinancialValue(p.total_debt, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="bg-navy-950/30">
+                  <td className="py-2.5 pr-4 text-emerald-400 font-sans font-semibold">Total Stockholders' Equity</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-3 text-right text-emerald-300 font-bold">
+                      {formatFinancialValue(p.total_equity, currency)}
                     </td>
                   ))}
                 </tr>
@@ -1114,17 +1545,17 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
             <table className="w-full text-xs text-left">
               <thead>
                 <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase">
-                  <th className="py-2.5 pr-4 font-semibold">Cash Flow Statement ({getUnitLabel(currency)})</th>
+                  <th className="py-2.5 pr-4 font-semibold">Line Item</th>
                   {displayPeriods.map((p: any, idx: number) => (
                     <th key={idx} className="py-2.5 px-3 text-right font-semibold">
-                      {p.fiscal_period || `FY${p.fiscal_year}`}
+                      {p.fiscal_period || (p.fiscal_year ? `FY${p.fiscal_year}` : 'FY')}
                     </th>
                   ))}
                 </tr>
               </thead>
               <tbody className="divide-y divide-navy-800/40 font-mono">
                 <tr>
-                  <td className="py-2.5 pr-4 text-white font-sans font-semibold">Operating Cash Flow (CFO)</td>
+                  <td className="py-2.5 pr-4 text-white font-sans font-semibold">Operating Cash Flow (OCF)</td>
                   {displayPeriods.map((p: any, idx: number) => (
                     <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
                       {formatFinancialValue(p.operating_cash_flow, currency)}
@@ -1134,7 +1565,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                 <tr>
                   <td className="py-2.5 pr-4 text-slate-300 font-sans">Capital Expenditure (CapEx)</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-3 text-right text-slate-400">
+                    <td key={idx} className="py-2.5 px-3 text-right text-rose-300">
                       {formatFinancialValue(p.capital_expenditure, currency)}
                     </td>
                   ))}
@@ -1190,13 +1621,13 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
         </div>
       </div>
 
-      {/* 5. AI RESEARCH ANALYST PANEL (GEMINI 3.8 FLASH RAG) */}
+      {/* 5. AI RESEARCH ANALYST DESK PREVIEW */}
       <div className="bg-navy-900 border border-navy-800 rounded-2xl p-5 shadow-xl">
         <div className="flex items-center justify-between mb-3 border-b border-navy-800 pb-3">
           <div className="flex items-center gap-2">
             <Sparkles className="h-4 w-4 text-gold-400" />
             <h3 className="text-sm font-bold text-white tracking-wide uppercase">
-              AI Research Analyst Desk (Gemini 3.8 Flash RAG)
+              AI Research Analyst Desk (Gemini Flash RAG)
             </h3>
           </div>
           <span className="text-[10px] text-emerald-400 font-mono flex items-center gap-1">
@@ -1291,6 +1722,31 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
           </button>
         </form>
       </div>
+    </div>
+  );
+
+  if (activeSection === 'ai-research') {
+    return (
+      <div className="space-y-6">
+        {renderHeader()}
+        {renderAiResearchWorkspace()}
+      </div>
+    );
+  }
+
+  if (activeSection === 'company-analysis') {
+    return (
+      <div className="space-y-6">
+        {renderHeader()}
+        {renderCompanyAnalysisWorkspace()}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-6">
+      {renderHeader()}
+      {renderOverviewWorkspace()}
     </div>
   );
 };

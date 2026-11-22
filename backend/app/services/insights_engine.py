@@ -120,6 +120,55 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
         if p.net_income and p.total_equity and p.total_equity > 0:
             roe = round((p.net_income / p.total_equity) * 100, 2)
 
+        # ROCE / ROIC %: EBIT / (Total Assets - Current Liabilities)
+        ebit_val = p.ebit if p.ebit is not None else p.operating_income
+        da_val = p.depreciation_amortization or 0.0
+        ebitda_val = (ebit_val + da_val) if ebit_val is not None else None
+
+        capital_employed = None
+        if p.total_assets and p.current_liabilities is not None:
+            capital_employed = p.total_assets - p.current_liabilities
+        elif p.total_debt is not None and p.total_equity:
+            capital_employed = p.total_debt + p.total_equity - (p.cash_and_equivalents or 0.0)
+
+        roic_pct = None
+        if ebit_val is not None and capital_employed and capital_employed > 0:
+            roic_pct = round((ebit_val / capital_employed) * 100, 2)
+
+        # Period Market Cap & Enterprise Value
+        raw_meta = dataset.raw_metadata or {}
+        quote_dict = raw_meta.get("quote") if isinstance(raw_meta.get("quote"), dict) else {}
+        live_mcap = raw_meta.get("market_cap") or quote_dict.get("market_cap")
+        period_mcap = None
+        if p.share_price and p.eps and p.eps > 0 and p.net_income and p.net_income > 0:
+            shares = p.net_income / p.eps
+            period_mcap = p.share_price * shares
+        elif idx == len(annual_periods) - 1 and live_mcap:
+            period_mcap = float(live_mcap)
+        elif p.share_price and p.pe_ratio and p.net_income and p.net_income > 0:
+            period_mcap = p.pe_ratio * p.net_income
+        elif live_mcap:
+            period_mcap = float(live_mcap)
+
+        ev_val = None
+        if period_mcap is not None:
+            ev_val = period_mcap + (p.total_debt or 0.0) - (p.cash_and_equivalents or 0.0)
+
+        # Valuation Multiples
+        ev_to_ebitda = round(ev_val / ebitda_val, 2) if (ev_val is not None and ebitda_val and ebitda_val > 0) else None
+        ev_to_revenue = round(ev_val / p.revenue, 2) if (ev_val is not None and p.revenue and p.revenue > 0) else None
+        price_to_book = round(period_mcap / p.total_equity, 2) if (period_mcap is not None and p.total_equity and p.total_equity > 0) else None
+        price_to_sales = round(period_mcap / p.revenue, 2) if (period_mcap is not None and p.revenue and p.revenue > 0) else None
+        fcf_yield_pct = round((p.free_cash_flow / period_mcap) * 100, 2) if (p.free_cash_flow is not None and period_mcap and period_mcap > 0) else None
+
+        # Solvency
+        debt_to_ebitda = round(p.total_debt / ebitda_val, 2) if (p.total_debt is not None and ebitda_val and ebitda_val > 0) else None
+
+        # Efficiency Ratios
+        asset_turnover = round(p.revenue / p.total_assets, 2) if (p.revenue and p.total_assets and p.total_assets > 0) else None
+        inv_cogs = p.cost_of_revenue if p.cost_of_revenue is not None else ((p.revenue - p.gross_profit) if (p.revenue and p.gross_profit is not None) else None)
+        inventory_turnover = round(inv_cogs / p.inventory, 2) if (inv_cogs and p.inventory and p.inventory > 0) else None
+
         label = f"FY{str(p.fiscal_year)[-2:]}"
         time_series_data.append({
             "period": label,
@@ -127,6 +176,8 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
             "fiscal_period": p.fiscal_period,
             "revenue": p.revenue,
             "operating_income": p.operating_income,
+            "ebit": ebit_val,
+            "ebitda": ebitda_val,
             "net_income": p.net_income,
             "opm_pct": opm,
             "net_margin_pct": net_margin,
@@ -143,7 +194,16 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
             "total_debt": p.total_debt,
             "current_ratio": current_ratio,
             "debt_to_equity": debt_to_equity,
+            "debt_to_ebitda": debt_to_ebitda,
             "roe_pct": roe,
+            "roic_pct": roic_pct,
+            "ev_to_ebitda": ev_to_ebitda,
+            "ev_to_revenue": ev_to_revenue,
+            "price_to_book": price_to_book,
+            "price_to_sales": price_to_sales,
+            "fcf_yield_pct": fcf_yield_pct,
+            "asset_turnover": asset_turnover,
+            "inventory_turnover": inventory_turnover,
         })
 
     # 2. Derive Multi-Year CAGRs if not already provided in Screener TRENDS
@@ -152,14 +212,22 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
         latest = annual_periods[-1]
         cagr_map: Dict[str, Dict[str, Optional[float]]] = {
             "sales_growth": {},
+            "ebit_growth": {},
             "net_profit_growth": {},
+            "eps_growth": {},
+            "fcf_growth": {},
         }
         periods_config = [("3 YEARS", 3), ("5 YEARS", 5), ("7 YEARS", 7), ("10 YEARS", 10)]
         for label, span in periods_config:
             if len(annual_periods) > span:
                 base_p = annual_periods[-(span + 1)]
                 cagr_map["sales_growth"][label] = calculate_cagr(base_p.revenue, latest.revenue, span)
+                base_ebit = base_p.ebit if base_p.ebit is not None else base_p.operating_income
+                lat_ebit = latest.ebit if latest.ebit is not None else latest.operating_income
+                cagr_map["ebit_growth"][label] = calculate_cagr(base_ebit, lat_ebit, span)
                 cagr_map["net_profit_growth"][label] = calculate_cagr(base_p.net_income, latest.net_income, span)
+                cagr_map["eps_growth"][label] = calculate_cagr(base_p.eps, latest.eps, span)
+                cagr_map["fcf_growth"][label] = calculate_cagr(base_p.free_cash_flow, latest.free_cash_flow, span)
         trends = {
             "headers": [label for label, span in periods_config if len(annual_periods) > span],
             "metrics": cagr_map
@@ -174,7 +242,8 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
 
     # Canonical Trailing P/E determination (prefer live quote, else current_price / latest_annual_eps)
     raw_meta = dataset.raw_metadata or {}
-    quote_pe = raw_meta.get("trailing_pe") or raw_meta.get("trailingPE")
+    quote_dict = raw_meta.get("quote") if isinstance(raw_meta.get("quote"), dict) else {}
+    quote_pe = raw_meta.get("trailing_pe") or raw_meta.get("trailingPE") or quote_dict.get("trailing_pe") or quote_dict.get("trailingPE")
     if quote_pe and float(quote_pe) > 0:
         canonical_pe = round(float(quote_pe), 2)
     elif trailing and trailing.share_price and trailing.eps and trailing.eps > 0:

@@ -180,6 +180,52 @@ async def _fetch_yahoo_quotes(query: str, limit: int) -> List[Dict[str, Any]]:
     return quotes_out
 
 
+def _calculate_search_rank(item: Dict[str, Any], query: str) -> tuple:
+    """
+    Ranks search results deterministically:
+    0: Exact symbol match (e.g. AAPL == AAPL, TCS == TCS.NS)
+    1: Prefix symbol match (e.g. ASIANPAINT -> ASIANPAINT.NS)
+    2: Exact company name match
+    3: Prefix company name match
+    4: Substring symbol match
+    5: Substring company name match
+    6: Other matches
+    Within each tier, cached items and shorter symbols are preferred.
+    """
+    q = query.strip().upper()
+    q_root = q[:-3] if (q.endswith(".NS") or q.endswith(".BO")) else q
+
+    sym = (item.get("symbol") or "").strip().upper()
+    sym_root = sym[:-3] if (sym.endswith(".NS") or sym.endswith(".BO")) else sym
+    name = (item.get("name") or "").strip().upper()
+
+    # Tier 0: Exact symbol match
+    if sym == q or sym_root == q or sym == f"{q}.NS" or sym == f"{q}.BO" or sym_root == q_root:
+        tier = 0
+    # Tier 1: Prefix symbol match
+    elif sym.startswith(q) or sym_root.startswith(q) or sym.startswith(q_root) or sym_root.startswith(q_root):
+        tier = 1
+    # Tier 2: Exact company name match
+    elif name == q or name == q_root:
+        tier = 2
+    # Tier 3: Prefix company name match
+    elif name.startswith(q) or name.startswith(q_root):
+        tier = 3
+    # Tier 4: Substring symbol match
+    elif q in sym or q_root in sym:
+        tier = 4
+    # Tier 5: Substring company name match
+    elif q in name or q_root in name:
+        tier = 5
+    else:
+        tier = 6
+
+    # Prefer cached items (0 before 1), prefer NSE (.NS) over BSE (.BO), then shorter symbols
+    is_cached_score = 0 if item.get("is_cached") else 1
+    exch_pref = 0 if sym.endswith(".NS") else 1 if not (sym.endswith(".BO") or sym.endswith(".L")) else 2
+    return (tier, is_cached_score, exch_pref, len(sym), sym)
+
+
 async def search_tickers(
     query: Optional[str] = None,
     limit: int = 15,
@@ -188,7 +234,8 @@ async def search_tickers(
     """
     Search for equities across Indian (NSE/BSE), US, and Global exchanges.
     - If query is empty: Returns top 8-10 featured NSE companies with cached prices.
-    - If query is provided: Searches Neon Postgres first (up to 10), then Yahoo Finance.
+    - If query is provided: Searches Neon Postgres first, then Yahoo Finance,
+      and ranks exact ticker matches and prefix matches strictly at the top.
     """
     cleaned_query = (query or "").strip()
 
@@ -201,7 +248,7 @@ async def search_tickers(
     # Run DB query and Yahoo query concurrently
     tasks = []
     if db:
-        tasks.append(asyncio.to_thread(_query_db_companies, db, cleaned_query, 10))
+        tasks.append(asyncio.to_thread(_query_db_companies, db, cleaned_query, 12))
     else:
         tasks.append(asyncio.sleep(0, result=[]))
 
@@ -210,21 +257,22 @@ async def search_tickers(
     results_db, results_yahoo = await asyncio.gather(*tasks)
 
     # Merge and deduplicate, prioritizing DB results
-    results: List[Dict[str, Any]] = []
+    all_candidates: List[Dict[str, Any]] = []
     seen_symbols = set()
 
     for item in results_db:
         sym = item["symbol"].upper()
         if sym not in seen_symbols:
             seen_symbols.add(sym)
-            results.append(item)
+            all_candidates.append(item)
 
     for item in results_yahoo:
         sym = item["symbol"].upper()
         if sym not in seen_symbols:
             seen_symbols.add(sym)
-            results.append(item)
-            if len(results) >= limit:
-                break
+            all_candidates.append(item)
 
-    return results
+    # Strictly rank exact matches and prefix matches at the very top
+    all_candidates.sort(key=lambda it: _calculate_search_rank(it, cleaned_query))
+
+    return all_candidates[:limit]

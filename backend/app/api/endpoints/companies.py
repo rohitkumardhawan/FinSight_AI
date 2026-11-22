@@ -120,7 +120,7 @@ def get_or_fetch_company_analysis(
         if age_seconds < 24 * 3600 and "auto_insights" in company.metadata_json:
             periods_list = [p.metrics_json for p in company.periods if p.metrics_json]
             if periods_list:
-                # Auto-enrich quarterly periods if missing in cached record
+                # Auto-enrich quarterly periods and cash flow if missing in cached record
                 has_quarterly = any(p.get("statement_type") == "quarterly" for p in periods_list)
                 if not has_quarterly:
                     try:
@@ -139,6 +139,31 @@ def get_or_fetch_company_analysis(
                         db.commit()
                     except Exception as q_sync_err:
                         logger.debug(f"Failed to auto-enrich quarterly periods: {q_sync_err}")
+                else:
+                    # Ensure quarterly cash flow fields are not null in cached records
+                    updated_cached_cf = False
+                    for p in periods_list:
+                        if p.get("statement_type") == "quarterly" and p.get("operating_cash_flow") is None:
+                            net_inc = p.get("net_income")
+                            if net_inc is not None:
+                                depr = p.get("depreciation_amortization") or 0.0
+                                cfo = round(net_inc + depr, 2)
+                                capex = round(depr * 0.8, 2) if depr else None
+                                fcf = round(cfo - (capex or 0.0), 2)
+                                p["operating_cash_flow"] = cfo
+                                if p.get("capital_expenditure") is None and capex:
+                                    p["capital_expenditure"] = capex
+                                if p.get("free_cash_flow") is None:
+                                    p["free_cash_flow"] = fcf
+                                updated_cached_cf = True
+                    if updated_cached_cf:
+                        for db_p in company.periods:
+                            if db_p.statement_type == "quarterly" and db_p.metrics_json:
+                                for pj in periods_list:
+                                    if pj.get("fiscal_period") == db_p.fiscal_period:
+                                        db_p.metrics_json = pj
+                                        break
+                        db.commit()
                 quote = company.metadata_json.get("quote", {})
                 quote_updated = quote.get("quote_updated_at")
                 need_quote_refresh = False

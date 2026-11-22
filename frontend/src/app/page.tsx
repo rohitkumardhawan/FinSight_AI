@@ -209,6 +209,7 @@ function MainDashboardContent() {
           {activeSection === 'overview' || activeSection === 'company-analysis' || activeSection === 'ai-research' ? (
             <CompanyDashboardView
               symbolOrId={currentTicker}
+              currentTab={activeSection}
               onRefresh={() => setCurrentTicker((t) => t)}
               onSelectTicker={handleSelectTicker}
             />

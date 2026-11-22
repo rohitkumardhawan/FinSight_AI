@@ -83,6 +83,7 @@ function CompanyDetailContent() {
           {activeSection === 'overview' || activeSection === 'company-analysis' || activeSection === 'ai-research' ? (
             <CompanyDashboardView
               symbolOrId={symbol}
+              currentTab={activeSection}
               onSelectTicker={handleSelectTicker}
             />
           ) : activeSection === 'compare' ? (
