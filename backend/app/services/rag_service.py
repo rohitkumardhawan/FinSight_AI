@@ -490,37 +490,42 @@ async def ask_company_question(db: Session, company_id: int, question: str) -> A
         f"ANALYST RESPONSE:"
     )
 
-    model_name = "gemini-3.8-flash"
+    CANDIDATE_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
     answer_text = ""
+    active_model = "deterministic-executive-summary"
+    ai_mode = "fallback"
 
     if client:
-        try:
-            gen_resp = client.models.generate_content(
-                model=model_name,
-                contents=prompt
-            )
-            answer_text = gen_resp.text.strip() if gen_resp.text else ""
-        except Exception as ex:
-            safe_err = str(ex).replace(settings.GEMINI_API_KEY or "", "[REDACTED]")
-            logger.warning(f"Primary model {model_name} failed: {type(ex).__name__}: {safe_err}. Falling back to gemini-2.5-flash...")
+        for model_candidate in CANDIDATE_MODELS:
             try:
-                model_name = "gemini-2.5-flash"
                 gen_resp = client.models.generate_content(
-                    model=model_name,
+                    model=model_candidate,
                     contents=prompt
                 )
-                answer_text = gen_resp.text.strip() if gen_resp.text else ""
-            except Exception as ex2:
-                safe_err2 = str(ex2).replace(settings.GEMINI_API_KEY or "", "[REDACTED]")
-                logger.error(f"Fallback model {model_name} also failed: {type(ex2).__name__}: {safe_err2}. Using deterministic executive summary.")
-                answer_text = _build_deterministic_executive_summary(company, periods, currency, risk_summary_text)
-    else:
+                if gen_resp and gen_resp.text and gen_resp.text.strip():
+                    answer_text = gen_resp.text.strip()
+                    active_model = model_candidate
+                    ai_mode = "live"
+                    logger.info(f"Gemini live synthesis succeeded with model {model_candidate}.")
+                    break
+            except Exception as ex:
+                safe_err = str(ex).replace(settings.GEMINI_API_KEY or "", "[REDACTED]")
+                logger.warning(
+                    f"Gemini live call failed with model '{model_candidate}': "
+                    f"Exception class: {ex.__class__.__name__}, Message: {safe_err}"
+                )
+
+    if not answer_text:
+        ai_mode = "fallback"
+        active_model = "deterministic-executive-summary"
+        logger.info("Using deterministic executive summary fallback.")
         answer_text = _build_deterministic_executive_summary(company, periods, currency, risk_summary_text)
 
     return AskQuestionResponse(
         answer=answer_text,
         dataset_id=company_id,
         company_name=company_name,
-        model=model_name,
-        citations=citations
+        model=active_model,
+        citations=citations,
+        ai_mode=ai_mode
     )

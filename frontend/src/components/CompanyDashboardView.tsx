@@ -2,6 +2,7 @@
 
 import React, { useState, useEffect } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
+import ReactMarkdown from 'react-markdown';
 import {
   TrendingUp,
   TrendingDown,
@@ -50,6 +51,8 @@ interface ChatMessage {
   role: 'user' | 'assistant';
   content: string;
   citations?: CitationItem[];
+  ai_mode?: 'live' | 'fallback';
+  model?: string;
 }
 
 interface CompanyDashboardViewProps {
@@ -353,7 +356,9 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
         {
           role: 'assistant',
           content: resJson.answer,
-          citations: resJson.citations
+          citations: resJson.citations,
+          ai_mode: resJson.ai_mode,
+          model: resJson.model
         }
       ]);
     } catch (e: any) {
@@ -361,12 +366,39 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
         ...prev,
         {
           role: 'assistant',
-          content: 'Unable to complete AI inquiry. Please ensure your backend is running and GEMINI_API_KEY is configured.'
+          content: 'Unable to complete AI inquiry. Please ensure your backend is running and GEMINI_API_KEY is configured.',
+          ai_mode: 'fallback'
         }
       ]);
     } finally {
       setAsking(false);
     }
+  };
+
+  const renderFormattedMessage = (content: string, isUser: boolean) => {
+    if (isUser) {
+      return <div className="whitespace-pre-line text-xs">{content}</div>;
+    }
+    return (
+      <div className="text-slate-200 text-xs leading-relaxed space-y-1.5 overflow-hidden">
+        <ReactMarkdown
+          components={{
+            h1: ({ node, ...props }) => <h1 className="text-sm font-bold text-gold-400 mt-2 mb-1 border-b border-navy-750 pb-0.5" {...props} />,
+            h2: ({ node, ...props }) => <h2 className="text-xs font-bold text-gold-300 mt-2 mb-1 uppercase tracking-wider" {...props} />,
+            h3: ({ node, ...props }) => <h3 className="text-xs font-bold text-white mt-1.5 mb-0.5" {...props} />,
+            h4: ({ node, ...props }) => <h4 className="text-xs font-semibold text-slate-200 mt-1 mb-0.5" {...props} />,
+            p: ({ node, ...props }) => <p className="mb-1.5 last:mb-0" {...props} />,
+            strong: ({ node, ...props }) => <strong className="font-semibold text-white" {...props} />,
+            ul: ({ node, ...props }) => <ul className="list-disc pl-4 space-y-1 my-1 text-slate-300" {...props} />,
+            ol: ({ node, ...props }) => <ol className="list-decimal pl-4 space-y-1 my-1 text-slate-300" {...props} />,
+            li: ({ node, ...props }) => <li className="pl-0.5" {...props} />,
+            code: ({ node, ...props }) => <code className="bg-navy-950 px-1 py-0.5 rounded text-gold-300 font-mono text-[11px]" {...props} />,
+          }}
+        >
+          {content}
+        </ReactMarkdown>
+      </div>
+    );
   };
 
   if (loading) {
@@ -1039,10 +1071,10 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                     {msg.role === 'user' ? 'Analyst Inquiry' : 'Institutional Synthesis'}
                   </span>
                   <span className="text-[9px] text-slate-500 font-mono">
-                    {msg.role === 'user' ? 'Prompt' : 'Gemini Flash RAG'}
+                    {msg.role === 'user' ? 'Prompt' : (msg.ai_mode === 'live' ? `${msg.model || 'Gemini Flash'} · Live AI` : 'Deterministic Synthesis')}
                   </span>
                 </div>
-                <div className="whitespace-pre-line text-xs">{msg.content}</div>
+                {renderFormattedMessage(msg.content, msg.role === 'user')}
 
                 {msg.citations && msg.citations.length > 0 && (
                   <div className="mt-3 pt-2.5 border-t border-navy-800 flex items-center gap-1.5 flex-wrap">
@@ -1252,7 +1284,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                 {formatPerShare(scenarios.trailing_price, currency)}
               </div>
               <div className="text-[10px] text-slate-400 mt-1">
-                Multiple: <strong className="text-slate-200">{scenarios.trailing_pe ? formatMultiple(scenarios.trailing_pe) : 'N/A'}</strong>
+                Multiple: <strong className="text-slate-200">{(quote?.trailing_pe ?? scenarios.trailing_pe) ? formatMultiple(quote?.trailing_pe ?? scenarios.trailing_pe) : 'N/A'}</strong>
               </div>
             </div>
 
@@ -1665,10 +1697,15 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                   : 'bg-navy-950/80 text-slate-200 mr-4 border border-navy-800'
               }`}
             >
-              <div className="font-semibold text-[10px] uppercase text-gold-400 mb-1">
-                {msg.role === 'user' ? 'Analyst Inquiry' : 'Institutional Synthesis'}
+              <div className="flex items-center justify-between mb-1">
+                <span className="font-semibold text-[10px] uppercase text-gold-400">
+                  {msg.role === 'user' ? 'Analyst Inquiry' : 'Institutional Synthesis'}
+                </span>
+                <span className="text-[9px] text-slate-500 font-mono">
+                  {msg.role === 'user' ? 'Prompt' : (msg.ai_mode === 'live' ? `${msg.model || 'Gemini Flash'} · Live AI` : 'Deterministic Synthesis')}
+                </span>
               </div>
-              <div className="whitespace-pre-line leading-relaxed">{msg.content}</div>
+              {renderFormattedMessage(msg.content, msg.role === 'user')}
 
               {/* Grounded Citation Chips */}
               {msg.citations && msg.citations.length > 0 && (

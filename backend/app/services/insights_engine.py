@@ -290,7 +290,12 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
         }
     elif trailing and (trailing.share_price or trailing.pe_ratio or canonical_pe):
         # Deterministic 1-year forward Base / Best / Worst scenarios for auto-fetched equities
-        trailing_price = trailing.share_price or 100.0
+        trailing_price = (
+            trailing.share_price
+            or raw_meta.get("current_price")
+            or quote_dict.get("current_price")
+            or 100.0
+        )
         active_pe = canonical_pe or trailing.pe_ratio or 22.0
         current_eps = trailing.eps or (round(trailing_price / active_pe, 2) if active_pe > 0 else 5.0)
         historical_pes = [p.pe_ratio for p in annual_periods if p.pe_ratio is not None and p.pe_ratio > 0]

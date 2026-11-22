@@ -229,12 +229,15 @@ def get_or_fetch_company_analysis(
                     elif lp.get("pe_ratio"):
                         canonical_pe = lp.get("pe_ratio")
 
+                cached_scenarios = (company.metadata_json or {}).get("scenarios", {}) or {}
                 if canonical_pe is not None:
                     try:
                         canonical_pe = round(float(canonical_pe), 2)
                         quote["trailing_pe"] = canonical_pe
                         if isinstance(cached_insights, dict) and "scenario_insights" in cached_insights and isinstance(cached_insights["scenario_insights"], dict):
                             cached_insights["scenario_insights"]["trailing_pe"] = canonical_pe
+                        if isinstance(cached_scenarios, dict):
+                            cached_scenarios["trailing_pe"] = canonical_pe
                     except Exception:
                         pass
 
@@ -252,7 +255,7 @@ def get_or_fetch_company_analysis(
                     "quote": quote,
                     "periods": periods_list,
                     "trends": company.metadata_json.get("trends", {}),
-                    "scenarios": company.metadata_json.get("scenarios", {}),
+                    "scenarios": cached_scenarios,
                     "auto_insights": cached_insights
                 }
 
@@ -325,6 +328,14 @@ def get_or_fetch_company_analysis(
         index_company_chunks(db, company.id, parsed)
     except Exception as e:
         logger.error(f"Failed to index RAG chunks for company {company.id}: {e}")
+
+    # Synchronize canonical trailing_pe on live parsed scenarios
+    live_pe = parsed.raw_metadata.get("trailing_pe")
+    if live_pe and parsed.scenarios and isinstance(parsed.scenarios, dict):
+        try:
+            parsed.scenarios["trailing_pe"] = round(float(live_pe), 2)
+        except Exception:
+            pass
 
     return {
         "company_id": company.id,

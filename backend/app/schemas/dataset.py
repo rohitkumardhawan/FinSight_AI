@@ -121,3 +121,4 @@ class AskQuestionResponse(BaseModel):
     company_name: str
     model: str
     citations: List[CitationItem] = Field(default_factory=list)
+    ai_mode: str = "live"  # "live" or "fallback"
