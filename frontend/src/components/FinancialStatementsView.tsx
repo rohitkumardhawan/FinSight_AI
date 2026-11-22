@@ -254,8 +254,14 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
           {label}
         </td>
         {filteredPeriods.map((stmt, idx) => {
-          const val = stmt[key] as number | null | undefined;
-          const prevVal = idx > 0 ? (filteredPeriods[idx - 1][key] as number | null | undefined) : null;
+          let val = stmt[key] as number | null | undefined;
+          if (key === 'ebitda' && val == null && stmt.operating_income != null) {
+            val = stmt.operating_income + Math.abs(stmt.depreciation_amortization || 0);
+          }
+          let prevVal = idx > 0 ? (filteredPeriods[idx - 1][key] as number | null | undefined) : null;
+          if (key === 'ebitda' && prevVal == null && idx > 0 && filteredPeriods[idx - 1].operating_income != null) {
+            prevVal = filteredPeriods[idx - 1].operating_income + Math.abs(filteredPeriods[idx - 1].depreciation_amortization || 0);
+          }
           const growth = showGrowth ? calculateGrowth(val, prevVal) : null;
 
           return (
@@ -507,6 +513,21 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
                   {renderLineItem('Revenue (Total Net Sales)', 'revenue', true, false, true)}
                   {renderLineItem('Cost of Goods Sold (COGS)', 'cost_of_revenue', false, true)}
                   {renderLineItem('Gross Profit', 'gross_profit', true, false, true)}
+                  {renderLineItem('EBITDA', 'ebitda', true, false, true)}
+                  <tr className="border-b border-white/[0.05] hover:bg-white/[0.03] transition-colors">
+                    <td className="py-2.5 px-4 text-xs sticky left-0 z-10 border-r border-white/[0.06] text-slate-300 bg-[#11141B] pl-8">
+                      EBITDA Margin %
+                    </td>
+                    {filteredPeriods.map((stmt, idx) => {
+                      const ebitdaVal = stmt.ebitda ?? (stmt.operating_income != null ? stmt.operating_income + Math.abs(stmt.depreciation_amortization || 0) : null);
+                      const m = stmt.ebitda_margin_pct ?? (ebitdaVal != null && stmt.revenue ? (ebitdaVal / stmt.revenue) * 100 : null);
+                      return (
+                        <td key={idx} className="py-2.5 px-4 text-right font-mono tabular-nums text-xs text-indigo-400 font-semibold">
+                          {m !== null && m !== undefined ? `${m.toFixed(1)}%` : '—'}
+                        </td>
+                      );
+                    })}
+                  </tr>
                   {renderLineItem('Operating Income (EBIT)', 'operating_income', true, false, true)}
                   {renderLineItem('Operating Expenses', 'operating_expenses', false, true)}
                   {renderLineItem('Net Income', 'net_income', true, false, true)}

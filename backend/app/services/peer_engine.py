@@ -6,7 +6,7 @@ and YoY growth rates for a target company against its top sector peers in Neon P
 including the official Sector Median benchmark row.
 """
 
-from typing import Dict, Any, List, Optional
+from typing import Dict, Any, List, Optional, Tuple
 import statistics
 import logging
 from concurrent.futures import ThreadPoolExecutor
@@ -43,6 +43,9 @@ def _fetch_yfinance_peer_info(symbol: str) -> Dict[str, Any]:
         pm = info.get("profitMargins")
         roe = info.get("returnOnEquity")
         rev_growth = info.get("revenueGrowth")
+        ev_to_ebitda = info.get("enterpriseToEbitda")
+        ebitda_m = info.get("ebitdaMargins")
+        pb = info.get("priceToBook")
 
         if (price is None or market_cap is None) and hasattr(t, "fast_info"):
             try:
@@ -62,6 +65,9 @@ def _fetch_yfinance_peer_info(symbol: str) -> Dict[str, Any]:
             "net_margin_pct": round(float(pm) * 100, 2) if pm is not None else None,
             "roe_pct": round(float(roe) * 100, 2) if roe is not None else None,
             "revenue_growth_pct": round(float(rev_growth) * 100, 2) if rev_growth is not None else None,
+            "ev_to_ebitda": round(float(ev_to_ebitda), 2) if ev_to_ebitda is not None else None,
+            "ebitda_margin_pct": round(float(ebitda_m) * 100, 2) if ebitda_m is not None else None,
+            "price_to_book": round(float(pb), 2) if pb is not None else None,
         }
     except Exception as e:
         logger.debug(f"yfinance fetch error for {symbol}: {e}")
@@ -76,7 +82,7 @@ def _extract_metrics_for_company(company: Company, periods: List[FinancialPeriod
     cached = meta.get("peer_metrics")
 
     now_ts = datetime.now(timezone.utc).timestamp()
-    if cached and (now_ts - cached.get("_cached_at", 0)) < 3600:
+    if cached and (now_ts - cached.get("_cached_at", 0)) < 3600 and cached.get("ev_to_ebitda") is not None:
         return {
             "symbol": symbol,
             "name": company.company_name or symbol,
@@ -87,6 +93,9 @@ def _extract_metrics_for_company(company: Company, periods: List[FinancialPeriod
             "net_margin_pct": cached.get("net_margin_pct"),
             "roe_pct": cached.get("roe_pct"),
             "revenue_growth_pct": cached.get("revenue_growth_pct"),
+            "ev_to_ebitda": cached.get("ev_to_ebitda"),
+            "ebitda_margin_pct": cached.get("ebitda_margin_pct"),
+            "price_to_book": cached.get("price_to_book"),
             "currency": company.currency or ("INR" if symbol.endswith(".NS") else "USD")
         }
 
@@ -97,6 +106,9 @@ def _extract_metrics_for_company(company: Company, periods: List[FinancialPeriod
     net_margin_pct = None
     roe_pct = None
     revenue_growth_pct = None
+    ev_to_ebitda = quote.get("enterpriseToEbitda")
+    ebitda_margin_pct = (quote.get("ebitdaMargins") * 100) if quote.get("ebitdaMargins") is not None else None
+    price_to_book = quote.get("priceToBook")
 
     if periods:
         latest = periods[-1]
@@ -130,6 +142,29 @@ def _extract_metrics_for_company(company: Company, periods: List[FinancialPeriod
             except Exception:
                 pass
 
+        # EBITDA and Valuation Multiples from period
+        ebitda_val = lp.get("ebitda")
+        if ebitda_val is None and (lp.get("operating_income") is not None or lp.get("ebit") is not None):
+            op = lp.get("operating_income") if lp.get("operating_income") is not None else lp.get("ebit")
+            da = abs(lp.get("depreciation_amortization") or 0.0)
+            ebitda_val = op + da
+
+        if ebitda_margin_pct is None and ebitda_val and lp.get("revenue") and lp["revenue"] > 0:
+            ebitda_margin_pct = round((ebitda_val / lp["revenue"]) * 100, 2)
+        elif lp.get("ebitda_margin_pct") is not None:
+            ebitda_margin_pct = lp.get("ebitda_margin_pct")
+
+        if ev_to_ebitda is None and lp.get("ev_to_ebitda") is not None:
+            ev_to_ebitda = lp.get("ev_to_ebitda")
+        elif ev_to_ebitda is None and market_cap and ebitda_val and ebitda_val > 0:
+            ev_calc = float(market_cap) + (lp.get("total_debt") or 0.0) - (lp.get("cash_and_equivalents") or 0.0)
+            ev_to_ebitda = round(ev_calc / ebitda_val, 2)
+
+        if price_to_book is None and lp.get("price_to_book") is not None:
+            price_to_book = lp.get("price_to_book")
+        elif price_to_book is None and market_cap and lp.get("total_equity") and lp["total_equity"] > 0:
+            price_to_book = round(float(market_cap) / float(lp["total_equity"]), 2)
+
         if len(periods) >= 2:
             prev = periods[-2]
             pp = prev.metrics_json or {}
@@ -149,17 +184,50 @@ def _extract_metrics_for_company(company: Company, periods: List[FinancialPeriod
         "net_margin_pct": round(float(net_margin_pct), 2) if net_margin_pct is not None else None,
         "roe_pct": round(float(roe_pct), 2) if roe_pct is not None else None,
         "revenue_growth_pct": round(float(revenue_growth_pct), 2) if revenue_growth_pct is not None else None,
+        "ev_to_ebitda": round(float(ev_to_ebitda), 2) if ev_to_ebitda is not None else None,
+        "ebitda_margin_pct": round(float(ebitda_margin_pct), 2) if ebitda_margin_pct is not None else None,
+        "price_to_book": round(float(price_to_book), 2) if price_to_book is not None else None,
         "currency": company.currency or ("INR" if symbol.endswith(".NS") else "USD")
     }
+
+
+def _is_sub_industry_match(target_ind: str, cand_ind: str, target_sym: str, cand_sym: str, cand_name: str) -> bool:
+    """Checks granular sub-industry match (e.g. Asset Management/Wealth or Paints/Specialty Chemicals)."""
+    t_ind = (target_ind or "").lower()
+    c_ind = (cand_ind or "").lower()
+    c_name = (cand_name or "").lower()
+
+    if t_ind and c_ind and t_ind == c_ind and t_ind != "general":
+        return True
+
+    # Asset Management / Wealth matching (e.g. 360ONE, HDFCAMC, ANANDRATHI, ABSLAMC)
+    if any(k in t_ind for k in ["asset management", "wealth", "amc"]) or "360ONE" in target_sym:
+        if any(k in c_ind for k in ["asset management", "wealth", "amc"]) or any(k in c_name for k in ["asset management", "wealth", "amc"]):
+            return True
+        if any(s in cand_sym for s in ["HDFCAMC", "ABSLAMC", "ANANDRATHI", "ICICIAMC", "NAM-INDIA", "MOTILALOFS", "UTIAMC"]):
+            return True
+
+    # Paints / Coatings / Specialty Chemicals matching (e.g. ASIANPAINT, BERGEPAINT, KANSAINER)
+    if any(k in t_ind for k in ["paint", "coating", "specialty chemical"]) or "PAINT" in target_sym:
+        if any(k in c_ind for k in ["paint", "coating", "specialty chemical"]) or any(k in c_name for k in ["paint", "coating"]):
+            return True
+        if any(s in cand_sym for s in ["BERGEPAINT", "KANSAINER", "AKZOINDIA", "INDIGOPNTS", "PIDILITIND", "GRASIM"]):
+            return True
+
+    return False
 
 
 def get_sector_peers(symbol: str, db: Session) -> Dict[str, Any]:
     """
     Main entry point for Sector Peer Comparison:
     1. Finds target company in DB.
-    2. Identifies its sector and industry (with true Yahoo mapping).
-    3. Finds up to 5 peer companies matching exact same currency and sub-industry/sector.
-    4. Computes target and peer metrics.
+    2. Identifies its sector and granular sub-industry.
+    3. Ranks candidates strictly within the same currency:
+       Priority 1: Granular sub-industry match first, then same sector.
+       Priority 2: Prefer peers with populated financials (non-null P/E, OPM, ROE).
+       Priority 3: Closest Market Capitalization (ABS(peer.market_cap - active.market_cap) ASC).
+       NEVER sorted alphabetically!
+    4. Computes target and peer metrics including EV/EBITDA, EBITDA Margin %, and P/B.
     5. Calculates Sector Median row across all returned companies.
     """
     clean_sym = symbol.strip().upper()
@@ -209,6 +277,9 @@ def get_sector_peers(symbol: str, db: Session) -> Dict[str, Any]:
 
     # 2. Determine Sector, Industry and Currency
     target_currency = (target_orm.currency or ("INR" if clean_sym.endswith(".NS") else "USD")).strip().upper()
+    target_meta = target_orm.metadata_json or {}
+    target_quote = target_meta.get("quote", {})
+    target_pm = target_meta.get("peer_metrics", {})
 
     if "ASIANPAINT" in clean_sym:
         if target_orm.sector != "Basic Materials" or target_orm.industry != "Specialty Chemicals":
@@ -217,44 +288,33 @@ def get_sector_peers(symbol: str, db: Session) -> Dict[str, Any]:
             if target_orm.company_name == "ASIANPAINT.NS":
                 target_orm.company_name = "Asian Paints Limited"
             db.commit()
+    elif "360ONE" in clean_sym:
+        if target_orm.sector != "Financial Services" or target_orm.industry != "Asset Management":
+            target_orm.sector = "Financial Services"
+            target_orm.industry = "Asset Management"
+            db.commit()
 
-    sector = target_orm.sector or "General"
-    industry = target_orm.industry or "General"
+    sector = target_quote.get("sector") or target_orm.sector or "General"
+    industry = target_quote.get("industry") or target_orm.industry or "General"
 
-    # 3. Query Peers in same Currency and Sub-Industry / Sector
-    peer_query = db.query(Company).filter(
-        Company.id != target_orm.id,
-        func.upper(Company.symbol) != clean_sym,
-        func.upper(Company.ticker) != clean_sym,
-        func.upper(Company.currency) == target_currency
-    )
+    target_mcap = target_pm.get("market_cap") or target_quote.get("market_cap") or target_quote.get("marketCap")
+    if not target_mcap:
+        try:
+            t_obj = yf.Ticker(clean_sym)
+            if hasattr(t_obj, "fast_info") and getattr(t_obj.fast_info, "market_cap", None):
+                target_mcap = float(t_obj.fast_info.market_cap)
+        except Exception:
+            pass
 
-    peers: List[Company] = []
-
-    # Priority 1: Match by granular sub-industry within same currency
-    if industry and industry.strip().lower() not in ("general", "none", ""):
-        peers = peer_query.filter(func.lower(Company.industry) == industry.strip().lower()).limit(5).all()
-
-    # Priority 2: Fallback to sector within same currency
-    if len(peers) < 5 and sector and sector.strip().lower() not in ("general", "none", ""):
-        existing_ids = [p.id for p in peers]
-        sec_peers = peer_query.filter(
-            func.lower(Company.sector) == sector.strip().lower(),
-            ~Company.id.in_(existing_ids) if existing_ids else True
-        ).limit(5 - len(peers)).all()
-        peers.extend(sec_peers)
-
-    # Seed known Indian Paint / Specialty Chemicals peers if target is ASIANPAINT (or paints)
-    if ("ASIANPAINT" in clean_sym or "PAINT" in clean_sym) and len(peers) < 5:
-        from app.services.auto_fetcher import fetch_company_data
+    # 3. Seed domain-specific flagship peers if missing from DB
+    if ("ASIANPAINT" in clean_sym or "PAINT" in clean_sym):
         for candidate_sym in ["BERGEPAINT.NS", "KANSAINER.NS", "PIDILITIND.NS", "GRASIM.NS", "INDIGOPNTS.NS"]:
-            if candidate_sym == clean_sym or any(p.symbol == candidate_sym for p in peers):
+            if candidate_sym == clean_sym:
                 continue
-            try:
-                cand_comp = db.query(Company).filter(
-                    func.upper(Company.symbol) == candidate_sym
-                ).first()
-                if not cand_comp:
+            cand_comp = db.query(Company).filter(func.upper(Company.symbol) == candidate_sym).first()
+            if not cand_comp:
+                try:
+                    from app.services.auto_fetcher import fetch_company_data
                     ds = fetch_company_data(candidate_sym)
                     cand_comp = Company(
                         symbol=candidate_sym,
@@ -268,30 +328,48 @@ def get_sector_peers(symbol: str, db: Session) -> Dict[str, Any]:
                     )
                     db.add(cand_comp)
                     db.commit()
-                    db.refresh(cand_comp)
-                else:
-                    if cand_comp.sector != "Basic Materials" or cand_comp.industry != "Specialty Chemicals":
-                        cand_comp.sector = "Basic Materials"
-                        cand_comp.industry = "Specialty Chemicals"
-                        db.commit()
-                peers.append(cand_comp)
-                if len(peers) >= 5:
-                    break
-            except Exception as e:
-                logger.debug(f"Could not seed peer {candidate_sym}: {e}")
+                except Exception as e:
+                    logger.debug(f"Could not seed peer {candidate_sym}: {e}")
+            elif cand_comp.sector != "Basic Materials" or cand_comp.industry != "Specialty Chemicals":
+                cand_comp.sector = "Basic Materials"
+                cand_comp.industry = "Specialty Chemicals"
+                db.commit()
 
-    # If USD universe has few peers in local DB, seed additional US tech peers
-    if target_currency == "USD" and len(peers) < 4:
-        from app.services.auto_fetcher import fetch_company_data
-        for candidate_sym in ["MSFT", "GOOGL", "NVDA", "AMZN", "META"]:
-            if candidate_sym == clean_sym or any(p.symbol == candidate_sym for p in peers):
+    if ("360ONE" in clean_sym or "WEALTH" in clean_sym or "AMC" in clean_sym or industry == "Asset Management"):
+        for candidate_sym in ["HDFCAMC.NS", "ANANDRATHI.NS", "ABSLAMC.NS", "NAM-INDIA.NS", "MOTILALOFS.NS", "ICICIAMC.NS"]:
+            if candidate_sym == clean_sym:
                 continue
-            try:
-                cand_comp = db.query(Company).filter(
-                    func.upper(Company.symbol) == candidate_sym,
-                    func.upper(Company.currency) == "USD"
-                ).first()
-                if not cand_comp:
+            cand_comp = db.query(Company).filter(func.upper(Company.symbol) == candidate_sym).first()
+            if not cand_comp:
+                try:
+                    from app.services.auto_fetcher import fetch_company_data
+                    ds = fetch_company_data(candidate_sym)
+                    cand_comp = Company(
+                        symbol=candidate_sym,
+                        ticker=candidate_sym,
+                        company_name=ds.company_name,
+                        exchange="NSE",
+                        currency="INR",
+                        sector="Financial Services",
+                        industry="Asset Management",
+                        metadata_json={"quote": ds.raw_metadata}
+                    )
+                    db.add(cand_comp)
+                    db.commit()
+                except Exception as e:
+                    logger.debug(f"Could not seed peer {candidate_sym}: {e}")
+
+    if target_currency == "USD":
+        for candidate_sym in ["MSFT", "GOOGL", "NVDA", "AMZN", "META"]:
+            if candidate_sym == clean_sym:
+                continue
+            cand_comp = db.query(Company).filter(
+                func.upper(Company.symbol) == candidate_sym,
+                func.upper(Company.currency) == "USD"
+            ).first()
+            if not cand_comp:
+                try:
+                    from app.services.auto_fetcher import fetch_company_data
                     ds = fetch_company_data(candidate_sym)
                     cand_comp = Company(
                         symbol=candidate_sym,
@@ -305,14 +383,58 @@ def get_sector_peers(symbol: str, db: Session) -> Dict[str, Any]:
                     )
                     db.add(cand_comp)
                     db.commit()
-                    db.refresh(cand_comp)
-                peers.append(cand_comp)
-                if len(peers) >= 5:
-                    break
-            except Exception as e:
-                logger.debug(f"Could not seed USD peer {candidate_sym}: {e}")
+                except Exception as e:
+                    logger.debug(f"Could not seed USD peer {candidate_sym}: {e}")
 
-    all_companies = [target_orm] + peers
+    # 4. Query all candidate peers within exact same currency
+    all_candidates = db.query(Company).filter(
+        Company.id != target_orm.id,
+        func.upper(Company.symbol) != clean_sym,
+        func.upper(Company.ticker) != clean_sym,
+        func.upper(Company.currency) == target_currency
+    ).all()
+
+    # Priority Ranking Function
+    def _rank_candidate(c: Company) -> Tuple[int, int, float]:
+        sym = (c.symbol or c.ticker or "").upper()
+        name = c.company_name or ""
+        c_meta = c.metadata_json or {}
+        c_quote = c_meta.get("quote", {})
+        c_pm = c_meta.get("peer_metrics", {})
+
+        c_ind = c_quote.get("industry") or c.industry or ""
+        c_sec = c_quote.get("sector") or c.sector or ""
+
+        # Priority 1: Sub-industry match (0) vs Sector match (1) vs Other (2)
+        if _is_sub_industry_match(industry, c_ind, clean_sym, sym, name):
+            ind_score = 0
+        elif (sector and c_sec and sector.lower() in c_sec.lower()) or (sector and c_ind and sector.lower() in c_ind.lower()):
+            ind_score = 1
+        else:
+            ind_score = 2
+
+        # Priority 2: Populated financials (0 if has P/E and OPM, 1 otherwise)
+        has_fin = bool(
+            (c_pm.get("pe_ratio") is not None or c_quote.get("trailing_pe") is not None or c_quote.get("trailingPE") is not None) and
+            (c_pm.get("opm_pct") is not None or c_quote.get("operatingMargins") is not None)
+        )
+        fin_score = 0 if has_fin else 1
+
+        # Priority 3: Market Cap Proximity (closest to target market cap)
+        cand_mcap = c_pm.get("market_cap") or c_quote.get("market_cap") or c_quote.get("marketCap")
+        if cand_mcap and target_mcap:
+            mcap_diff = abs(float(cand_mcap) - float(target_mcap))
+        elif cand_mcap:
+            mcap_diff = 1e16 - float(cand_mcap)
+        else:
+            mcap_diff = 1e18
+
+        return (ind_score, fin_score, mcap_diff)
+
+    ranked_candidates = sorted(all_candidates, key=_rank_candidate)
+    selected_peers: List[Company] = ranked_candidates[:5]
+
+    all_companies = [target_orm] + selected_peers
     comp_ids = [c.id for c in all_companies]
 
     # Pre-fetch periods for all selected companies
@@ -332,7 +454,7 @@ def get_sector_peers(symbol: str, db: Session) -> Dict[str, Any]:
     for comp in all_companies:
         m = _extract_metrics_for_company(comp, periods_by_comp.get(comp.id, []))
         initial_metrics.append(m)
-        if any(m[k] is None for k in ["price", "market_cap", "pe_ratio", "opm_pct", "net_margin_pct", "roe_pct", "revenue_growth_pct"]):
+        if any(m.get(k) is None for k in ["price", "market_cap", "pe_ratio", "opm_pct", "net_margin_pct", "roe_pct", "revenue_growth_pct", "ev_to_ebitda", "ebitda_margin_pct", "price_to_book"]):
             need_yf_symbols.append(m["symbol"])
 
     # Concurrent yfinance fetch only for missing metrics
@@ -345,7 +467,7 @@ def get_sector_peers(symbol: str, db: Session) -> Dict[str, Any]:
             sym = m["symbol"]
             if sym in yf_map:
                 yf_data = yf_map[sym]
-                for key in ["price", "market_cap", "pe_ratio", "opm_pct", "net_margin_pct", "roe_pct", "revenue_growth_pct"]:
+                for key in ["price", "market_cap", "pe_ratio", "opm_pct", "net_margin_pct", "roe_pct", "revenue_growth_pct", "ev_to_ebitda", "ebitda_margin_pct", "price_to_book"]:
                     if m.get(key) is None and yf_data.get(key) is not None:
                         m[key] = yf_data[key]
 
@@ -378,6 +500,9 @@ def get_sector_peers(symbol: str, db: Session) -> Dict[str, Any]:
         "net_margin_pct": _calculate_median([m.get("net_margin_pct") for m in all_metrics]),
         "roe_pct": _calculate_median([m.get("roe_pct") for m in all_metrics]),
         "revenue_growth_pct": _calculate_median([m.get("revenue_growth_pct") for m in all_metrics]),
+        "ev_to_ebitda": _calculate_median([m.get("ev_to_ebitda") for m in all_metrics]),
+        "ebitda_margin_pct": _calculate_median([m.get("ebitda_margin_pct") for m in all_metrics]),
+        "price_to_book": _calculate_median([m.get("price_to_book") for m in all_metrics]),
         "currency": target_metrics.get("currency", "INR")
     }
 

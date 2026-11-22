@@ -227,11 +227,21 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
         ebit = _get_metric_val(income_stmt, ["EBIT", "Normalized EBITDA"], dt)
         other_inc = _get_metric_val(income_stmt, ["Other Income Expense", "Non Operating Income Expense"], dt)
         depr = _get_metric_val(income_stmt, ["Reconciled Depreciation", "Depreciation And Amortization In Income Statement"], dt)
+        if depr is None and cashflow is not None:
+            depr = _get_metric_val(cashflow, ["Depreciation And Amortization", "Depreciation Amortization Depletion", "Depreciation", "Depreciation & Amortization"], dt)
         interest = _get_metric_val(income_stmt, ["Interest Expense", "Interest Expense Non Operating"], dt)
         pbt = _get_metric_val(income_stmt, ["Pretax Income"], dt)
         tax_exp = _get_metric_val(income_stmt, ["Tax Provision", "Tax Effect Of Unusual Items"], dt)
         net_inc = _get_metric_val(income_stmt, ["Net Income Common Stockholders", "Net Income"], dt)
         eps = _get_metric_val(income_stmt, ["Diluted EPS", "Basic EPS"], dt)
+
+        # EBITDA and EBITDA Margin %
+        ebitda = None
+        if op_inc is not None:
+            ebitda = round(op_inc + abs(depr or 0.0), 2)
+        elif ebit is not None:
+            ebitda = round(ebit + abs(depr or 0.0), 2)
+        ebitda_m = round((ebitda / rev) * 100, 2) if (ebitda is not None and rev and rev > 0) else None
 
         # Extract Balance Sheet metrics
         total_assets = _get_metric_val(balance_sheet, ["Total Assets"], dt)
@@ -267,6 +277,8 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
             other_income=other_inc,
             ebit=ebit,
             depreciation_amortization=depr,
+            ebitda=ebitda,
+            ebitda_margin_pct=ebitda_m,
             interest_expense=interest,
             profit_before_tax=pbt,
             tax_expense=tax_exp,
@@ -327,11 +339,21 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
             ebit_q = _get_metric_val(q_income_stmt, ["EBIT", "Normalized EBITDA"], q_dt)
             other_inc_q = _get_metric_val(q_income_stmt, ["Other Income Expense", "Non Operating Income Expense"], q_dt)
             depr_q = _get_metric_val(q_income_stmt, ["Reconciled Depreciation", "Depreciation And Amortization In Income Statement"], q_dt)
+            if depr_q is None and q_cashflow is not None:
+                depr_q = _get_metric_val(q_cashflow, ["Depreciation And Amortization", "Depreciation Amortization Depletion", "Depreciation", "Depreciation & Amortization"], q_dt)
             interest_q = _get_metric_val(q_income_stmt, ["Interest Expense", "Interest Expense Non Operating"], q_dt)
             pbt_q = _get_metric_val(q_income_stmt, ["Pretax Income"], q_dt)
             tax_exp_q = _get_metric_val(q_income_stmt, ["Tax Provision", "Tax Effect Of Unusual Items"], q_dt)
             net_inc_q = _get_metric_val(q_income_stmt, ["Net Income Common Stockholders", "Net Income"], q_dt)
             eps_q = _get_metric_val(q_income_stmt, ["Diluted EPS", "Basic EPS"], q_dt)
+
+            # EBITDA and EBITDA Margin %
+            ebitda_q = None
+            if op_inc_q is not None:
+                ebitda_q = round(op_inc_q + abs(depr_q or 0.0), 2)
+            elif ebit_q is not None:
+                ebitda_q = round(ebit_q + abs(depr_q or 0.0), 2)
+            ebitda_m_q = round((ebitda_q / rev_q) * 100, 2) if (ebitda_q is not None and rev_q and rev_q > 0) else None
 
             # Balance Sheet
             total_assets_q = _get_metric_val(q_balance_sheet, ["Total Assets"], q_dt)
@@ -382,6 +404,8 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
                 other_income=other_inc_q,
                 ebit=ebit_q,
                 depreciation_amortization=depr_q,
+                ebitda=ebitda_q,
+                ebitda_margin_pct=ebitda_m_q,
                 interest_expense=interest_q,
                 profit_before_tax=pbt_q,
                 tax_expense=tax_exp_q,

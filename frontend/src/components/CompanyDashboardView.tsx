@@ -79,6 +79,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'income' | 'balance' | 'cashflow' | 'trends' | 'scenarios'>('income');
+  const [marginPeriodFilter, setMarginPeriodFilter] = useState<'annual' | 'quarterly'>('annual');
 
   // Sector Peer Comparison State (Feature 1)
   const [peerData, setPeerData] = useState<any>(null);
@@ -546,20 +547,37 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
   const annualPeriods = displayPeriods.filter(
     (p: any) => p.fiscal_year && p.statement_type !== 'quarterly' && (!p.fiscal_period || !p.fiscal_period.startsWith('Q'))
   );
+  const quarterlyPeriods = displayPeriods
+    .filter((p: any) => p.statement_type === 'quarterly' || (p.fiscal_period && p.fiscal_period.startsWith('Q')))
+    .sort((a: any, b: any) => {
+      const ya = a.fiscal_year || 0;
+      const yb = b.fiscal_year || 0;
+      if (ya !== yb) return ya - yb;
+      return (a.fiscal_period || '').localeCompare(b.fiscal_period || '');
+    });
+
   const latestPeriod = annualPeriods.length > 0 ? annualPeriods[annualPeriods.length - 1] : (displayPeriods[displayPeriods.length - 1] || {});
   const latestOpm = latestPeriod.opm_pct ?? (latestPeriod.operating_income && latestPeriod.revenue ? (latestPeriod.operating_income / latestPeriod.revenue) * 100 : null);
   const latestNetMargin = latestPeriod.net_margin_pct ?? (latestPeriod.net_income && latestPeriod.revenue ? (latestPeriod.net_income / latestPeriod.revenue) * 100 : null);
   const latestGrossMargin = latestPeriod.gross_margin_pct ?? (latestPeriod.gross_profit && latestPeriod.revenue ? (latestPeriod.gross_profit / latestPeriod.revenue) * 100 : null);
+  const latestEbitda = latestPeriod.ebitda ?? (latestPeriod.operating_income != null ? latestPeriod.operating_income + Math.abs(latestPeriod.depreciation_amortization || 0) : null);
+  const latestEbitdaMargin = latestPeriod.ebitda_margin_pct ?? (latestEbitda && latestPeriod.revenue ? (latestEbitda / latestPeriod.revenue) * 100 : null);
   const latestRoe = latestPeriod.roe_pct ?? (latestPeriod.net_income && latestPeriod.total_equity ? (latestPeriod.net_income / latestPeriod.total_equity) * 100 : null);
   const latestFcf = latestPeriod.free_cash_flow;
   const latestDebtToEquity = latestPeriod.debt_to_equity ?? (latestPeriod.total_debt && latestPeriod.total_equity ? latestPeriod.total_debt / latestPeriod.total_equity : null);
 
-  const chartData = displayPeriods.map((p: any) => ({
-    period: p.fiscal_period || (p.fiscal_year ? `FY${p.fiscal_year}` : 'FY'),
-    revenue: p.revenue || 0,
-    gross_profit: p.gross_profit || (p.revenue && p.cost_of_revenue ? p.revenue - p.cost_of_revenue : p.operating_income || 0),
-    net_income: p.net_income || 0,
-  }));
+  // Sliced strictly by annual periods to prevent quarterly dip artifacts on multi-year trajectory
+  const annualChartPeriods = annualPeriods.length > 0 ? annualPeriods : displayPeriods;
+  const chartData = annualChartPeriods.map((p: any) => {
+    const ebitdaVal = p.ebitda ?? (p.operating_income != null ? p.operating_income + Math.abs(p.depreciation_amortization || 0) : null);
+    return {
+      period: p.fiscal_period || (p.fiscal_year ? `FY${p.fiscal_year}` : 'FY'),
+      revenue: p.revenue || 0,
+      gross_profit: p.gross_profit || (p.revenue && p.cost_of_revenue ? p.revenue - p.cost_of_revenue : p.operating_income || 0),
+      net_income: p.net_income || 0,
+      ebitda: ebitdaVal || 0,
+    };
+  });
 
   // 1. INSTITUTIONAL COMPANY HEADER
   const renderHeader = () => {
@@ -710,6 +728,9 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                 <th className="py-2.5 px-3 text-right font-semibold">Price</th>
                 <th className="py-2.5 px-3 text-right font-semibold">Market Cap</th>
                 <th className="py-2.5 px-3 text-right font-semibold">P/E</th>
+                <th className="py-2.5 px-3 text-right font-semibold">P/B</th>
+                <th className="py-2.5 px-3 text-right font-semibold">EV/EBITDA</th>
+                <th className="py-2.5 px-3 text-right font-semibold">EBITDA Margin %</th>
                 <th className="py-2.5 px-3 text-right font-semibold">OPM %</th>
                 <th className="py-2.5 px-3 text-right font-semibold">Net Margin %</th>
                 <th className="py-2.5 px-3 text-right font-semibold">ROE %</th>
@@ -748,6 +769,33 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                       peerData.target.pe_ratio != null ? `${Number(peerData.target.pe_ratio).toFixed(2)}x` : '—',
                       true,
                       false
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-right">
+                    {renderComparisonCell(
+                      peerData.target.price_to_book,
+                      peerData.sector_median?.price_to_book,
+                      peerData.target.price_to_book != null ? `${Number(peerData.target.price_to_book).toFixed(2)}x` : '—',
+                      true,
+                      false
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-right">
+                    {renderComparisonCell(
+                      peerData.target.ev_to_ebitda,
+                      peerData.sector_median?.ev_to_ebitda,
+                      peerData.target.ev_to_ebitda != null ? `${Number(peerData.target.ev_to_ebitda).toFixed(2)}x` : '—',
+                      true,
+                      false
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-right">
+                    {renderComparisonCell(
+                      peerData.target.ebitda_margin_pct,
+                      peerData.sector_median?.ebitda_margin_pct,
+                      peerData.target.ebitda_margin_pct != null ? `${Number(peerData.target.ebitda_margin_pct).toFixed(2)}%` : '—',
+                      false,
+                      true
                     )}
                   </td>
                   <td className="py-3 px-3 text-right">
@@ -826,6 +874,33 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                   </td>
                   <td className="py-3 px-3 text-right text-slate-200">
                     {renderComparisonCell(
+                      peer.price_to_book,
+                      peerData.sector_median?.price_to_book,
+                      peer.price_to_book != null ? `${Number(peer.price_to_book).toFixed(2)}x` : '—',
+                      true,
+                      false
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-right text-slate-200">
+                    {renderComparisonCell(
+                      peer.ev_to_ebitda,
+                      peerData.sector_median?.ev_to_ebitda,
+                      peer.ev_to_ebitda != null ? `${Number(peer.ev_to_ebitda).toFixed(2)}x` : '—',
+                      true,
+                      false
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-right text-slate-200">
+                    {renderComparisonCell(
+                      peer.ebitda_margin_pct,
+                      peerData.sector_median?.ebitda_margin_pct,
+                      peer.ebitda_margin_pct != null ? `${Number(peer.ebitda_margin_pct).toFixed(2)}%` : '—',
+                      false,
+                      true
+                    )}
+                  </td>
+                  <td className="py-3 px-3 text-right text-slate-200">
+                    {renderComparisonCell(
                       peer.opm_pct,
                       peerData.sector_median?.opm_pct,
                       peer.opm_pct != null ? `${Number(peer.opm_pct).toFixed(2)}%` : '—',
@@ -884,6 +959,15 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                   </td>
                   <td className="py-3 px-3 text-right text-sky-300 font-mono tabular-nums">
                     {formatMultiple(peerData.sector_median.pe_ratio)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-sky-300 font-mono tabular-nums">
+                    {formatMultiple(peerData.sector_median.price_to_book)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-sky-300 font-mono tabular-nums">
+                    {formatMultiple(peerData.sector_median.ev_to_ebitda)}
+                  </td>
+                  <td className="py-3 px-3 text-right text-sky-300 font-mono tabular-nums">
+                    {formatPercent(peerData.sector_median.ebitda_margin_pct)}
                   </td>
                   <td className="py-3 px-3 text-right text-sky-300 font-mono tabular-nums">
                     {formatPercent(peerData.sector_median.opm_pct)}
@@ -948,6 +1032,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
               <tbody className="divide-y divide-white/[0.04] font-mono tabular-nums">
                 {[
                   { key: 'sales_growth', label: 'Sales / Revenue CAGR' },
+                  { key: 'ebitda_growth', label: 'EBITDA CAGR' },
                   { key: 'ebit_growth', label: 'Operating Profit (EBIT) CAGR' },
                   { key: 'net_profit_growth', label: 'Net Profit CAGR' },
                   { key: 'eps_growth', label: 'Diluted EPS CAGR' },
@@ -961,10 +1046,14 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                       </td>
                       {cagrHeaders.map((h: string, hIdx: number) => {
                         const val = metricMap[h];
-                        const isPos = val != null && val >= 0;
+                        const isNM = val === 'N/M' || val === 'NM';
+                        const isNum = typeof val === 'number' && !isNaN(val);
+                        const isPos = isNum && val >= 0;
                         return (
                           <td key={hIdx} className="py-3 px-4 text-right">
-                            {val != null ? (
+                            {isNM ? (
+                              <span className="text-slate-400 font-mono text-[11px] font-semibold">N/M</span>
+                            ) : isNum ? (
                               <span className={`font-bold ${isPos ? 'text-emerald-400' : 'text-rose-400'}`}>
                                 {isPos ? '+' : ''}{Number(val).toFixed(2)}%
                               </span>
@@ -999,6 +1088,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
 
           <ChartProfitability
             grossMargin={latestGrossMargin}
+            ebitdaMargin={latestEbitdaMargin}
             operatingMargin={latestOpm}
             netMargin={latestNetMargin}
           />
@@ -1006,18 +1096,41 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
 
         {/* Multi-Period Margin Trends Breakdown */}
         <div className="bg-navy-900 border border-navy-800 rounded-2xl p-5 shadow-xl space-y-3">
-          <div className="flex items-center justify-between border-b border-navy-800 pb-2.5">
-            <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-              Historical Margin Evolution
-            </h3>
-            <span className="text-xs text-slate-400 font-mono">Annual Reporting Periods</span>
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-navy-800 pb-2.5">
+            <div>
+              <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+                Historical Margin Evolution
+              </h3>
+              <span className="text-xs text-slate-400 font-mono">
+                {marginPeriodFilter === 'annual' ? 'Annual (FY) Reporting Periods' : 'Quarterly Financial Trajectory'}
+              </span>
+            </div>
+            {/* Annual | Quarterly Toggle Pill */}
+            <div className="flex items-center gap-1 bg-[#090B0F] p-0.5 rounded-lg border border-white/[0.08]">
+              <button
+                onClick={() => setMarginPeriodFilter('annual')}
+                className={`px-2.5 py-1 text-[11px] font-mono rounded transition-all ${
+                  marginPeriodFilter === 'annual' ? 'bg-sky-500 text-white font-bold shadow-sm' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Annual {annualPeriods.length > 0 && `(${annualPeriods.length}Y)`}
+              </button>
+              <button
+                onClick={() => setMarginPeriodFilter('quarterly')}
+                className={`px-2.5 py-1 text-[11px] font-mono rounded transition-all ${
+                  marginPeriodFilter === 'quarterly' ? 'bg-sky-500 text-white font-bold shadow-sm' : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Quarterly {quarterlyPeriods.length > 0 && `(${quarterlyPeriods.length}Q)`}
+              </button>
+            </div>
           </div>
           <div className="overflow-x-auto">
             <table className="w-full text-xs text-left">
               <thead>
                 <tr className="border-b border-white/[0.06] text-slate-400 text-[11px] font-mono uppercase bg-[#0C0E14]">
                   <th className="py-2.5 px-3 font-semibold min-w-[200px]">Margin Ratio</th>
-                  {displayPeriods.map((p: any, idx: number) => (
+                  {(marginPeriodFilter === 'annual' ? (annualPeriods.length > 0 ? annualPeriods : displayPeriods) : (quarterlyPeriods.length > 0 ? quarterlyPeriods : displayPeriods)).map((p: any, idx: number) => (
                     <th key={idx} className="py-2.5 px-3 text-right font-mono font-bold text-white">
                       {p.fiscal_period || (p.fiscal_year ? `FY${p.fiscal_year}` : 'FY')}
                     </th>
@@ -1027,7 +1140,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
               <tbody className="divide-y divide-white/[0.04] font-mono tabular-nums">
                 <tr>
                   <td className="py-2.5 px-3 font-sans font-medium text-slate-300">Gross Margin %</td>
-                  {displayPeriods.map((p: any, idx: number) => {
+                  {(marginPeriodFilter === 'annual' ? (annualPeriods.length > 0 ? annualPeriods : displayPeriods) : (quarterlyPeriods.length > 0 ? quarterlyPeriods : displayPeriods)).map((p: any, idx: number) => {
                     const gm = p.gross_margin_pct ?? (p.gross_profit && p.revenue ? (p.gross_profit / p.revenue) * 100 : null);
                     return (
                       <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
@@ -1037,8 +1150,20 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                   })}
                 </tr>
                 <tr>
+                  <td className="py-2.5 px-3 font-sans font-medium text-slate-300">EBITDA Margin %</td>
+                  {(marginPeriodFilter === 'annual' ? (annualPeriods.length > 0 ? annualPeriods : displayPeriods) : (quarterlyPeriods.length > 0 ? quarterlyPeriods : displayPeriods)).map((p: any, idx: number) => {
+                    const ebitdaVal = p.ebitda ?? (p.operating_income != null ? p.operating_income + Math.abs(p.depreciation_amortization || 0) : null);
+                    const em = p.ebitda_margin_pct ?? (ebitdaVal != null && p.revenue ? (ebitdaVal / p.revenue) * 100 : null);
+                    return (
+                      <td key={idx} className="py-2.5 px-3 text-right text-indigo-400 font-semibold">
+                        {formatPercent(em)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr>
                   <td className="py-2.5 px-3 font-sans font-medium text-slate-300">Operating Margin (OPM) %</td>
-                  {displayPeriods.map((p: any, idx: number) => {
+                  {(marginPeriodFilter === 'annual' ? (annualPeriods.length > 0 ? annualPeriods : displayPeriods) : (quarterlyPeriods.length > 0 ? quarterlyPeriods : displayPeriods)).map((p: any, idx: number) => {
                     const op = p.opm_pct ?? (p.operating_income && p.revenue ? (p.operating_income / p.revenue) * 100 : null);
                     return (
                       <td key={idx} className="py-2.5 px-3 text-right text-gold-300 font-semibold">
@@ -1049,7 +1174,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                 </tr>
                 <tr>
                   <td className="py-2.5 px-3 font-sans font-medium text-slate-300">Net Profit Margin %</td>
-                  {displayPeriods.map((p: any, idx: number) => {
+                  {(marginPeriodFilter === 'annual' ? (annualPeriods.length > 0 ? annualPeriods : displayPeriods) : (quarterlyPeriods.length > 0 ? quarterlyPeriods : displayPeriods)).map((p: any, idx: number) => {
                     const nm = p.net_margin_pct ?? (p.net_income && p.revenue ? (p.net_income / p.revenue) * 100 : null);
                     return (
                       <td key={idx} className="py-2.5 px-3 text-right text-emerald-400 font-semibold">
@@ -1060,7 +1185,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                 </tr>
                 <tr>
                   <td className="py-2.5 px-3 font-sans font-medium text-slate-300">FCF Margin %</td>
-                  {displayPeriods.map((p: any, idx: number) => {
+                  {(marginPeriodFilter === 'annual' ? (annualPeriods.length > 0 ? annualPeriods : displayPeriods) : (quarterlyPeriods.length > 0 ? quarterlyPeriods : displayPeriods)).map((p: any, idx: number) => {
                     const fcfm = p.fcf_margin_pct ?? (p.free_cash_flow && p.revenue ? (p.free_cash_flow / p.revenue) * 100 : null);
                     return (
                       <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
@@ -1564,6 +1689,29 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                     </td>
                   ))}
                 </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-200 font-sans font-semibold sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">EBITDA</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const ebitdaVal = p.ebitda ?? (p.operating_income != null ? p.operating_income + Math.abs(p.depreciation_amortization || 0) : null);
+                    return (
+                      <td key={idx} className="py-2.5 px-4 text-right text-slate-200 font-medium">
+                        {formatFinancialValue(ebitdaVal, currency)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">EBITDA Margin %</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const ebitdaVal = p.ebitda ?? (p.operating_income != null ? p.operating_income + Math.abs(p.depreciation_amortization || 0) : null);
+                    const em = p.ebitda_margin_pct ?? (ebitdaVal != null && p.revenue ? (ebitdaVal / p.revenue) * 100 : null);
+                    return (
+                      <td key={idx} className="py-2.5 px-4 text-right text-indigo-400 font-semibold">
+                        {formatPercent(em)}
+                      </td>
+                    );
+                  })}
+                </tr>
                 <tr className="bg-sky-500/[0.03] border-b border-white/[0.06] hover:bg-sky-500/[0.06] transition-colors">
                   <td className="py-2.5 px-4 text-sky-300 font-sans font-bold sticky left-0 bg-[#141822] z-10 border-r border-white/[0.06]">Operating Income (EBIT)</td>
                   {displayPeriods.map((p: any, idx: number) => (
@@ -1717,9 +1865,10 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                       </td>
                       {(trends.headers || []).map((h: string, hIdx: number) => {
                         const val = spanMap[h];
+                        const isNM = val === 'N/M' || val === 'NM';
                         return (
                           <td key={hIdx} className="py-2.5 px-4 text-right text-slate-200">
-                            {val !== undefined && val !== null ? `${val}%` : '—'}
+                            {val !== undefined && val !== null ? (isNM ? 'N/M' : `${val}%`) : '—'}
                           </td>
                         );
                       })}

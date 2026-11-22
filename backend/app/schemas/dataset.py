@@ -25,6 +25,8 @@ class FinancialPeriodRecord(BaseModel):
     other_income: Optional[float] = None
     ebit: Optional[float] = None
     depreciation_amortization: Optional[float] = None
+    ebitda: Optional[float] = None
+    ebitda_margin_pct: Optional[float] = None
     interest_expense: Optional[float] = None
     profit_before_tax: Optional[float] = None
     tax_expense: Optional[float] = None
@@ -37,6 +39,11 @@ class FinancialPeriodRecord(BaseModel):
     share_price: Optional[float] = None
     dividend_payout_pct: Optional[float] = None
     opm_pct: Optional[float] = None
+    ev_to_ebitda: Optional[float] = None
+    price_to_book: Optional[float] = None
+    debt_to_ebitda: Optional[float] = None
+    roce_pct: Optional[float] = None
+    fcf_yield_pct: Optional[float] = None
     
     # Balance Sheet metrics
     total_assets: Optional[float] = None

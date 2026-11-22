@@ -164,6 +164,16 @@ def get_or_fetch_company_analysis(
                                         db_p.metrics_json = pj
                                         break
                         db.commit()
+
+                # Ensure EBITDA and EBITDA Margin % are populated for all cached periods
+                for p in periods_list:
+                    if p.get("ebitda") is None:
+                        op = p.get("operating_income") if p.get("operating_income") is not None else p.get("ebit")
+                        da = abs(p.get("depreciation_amortization") or 0.0)
+                        if op is not None:
+                            p["ebitda"] = round(op + da, 2)
+                    if p.get("ebitda_margin_pct") is None and p.get("ebitda") is not None and p.get("revenue") and p["revenue"] > 0:
+                        p["ebitda_margin_pct"] = round((p["ebitda"] / p["revenue"]) * 100, 2)
                 quote = company.metadata_json.get("quote", {})
                 quote_updated = quote.get("quote_updated_at")
                 need_quote_refresh = False
@@ -243,6 +253,27 @@ def get_or_fetch_company_analysis(
 
                 norm_exch = "NSE" if (symbol_clean.endswith(".NS") or (company.exchange or "").upper() == "NSI") else (company.exchange or "GLOBAL")
 
+                trends_data = company.metadata_json.get("trends", {})
+                if not trends_data or "ebitda_growth" not in (trends_data.get("metrics") or {}):
+                    try:
+                        from app.schemas.dataset import ParsedCompanyDataset, FinancialPeriodRecord
+                        from app.services.insights_engine import generate_auto_insights
+                        p_records = [FinancialPeriodRecord(**pj) for pj in periods_list]
+                        ds_temp = ParsedCompanyDataset(
+                            company_name=company.company_name,
+                            filename=f"{symbol_clean} (Cached)",
+                            detected_format="yfinance",
+                            periods=p_records,
+                            raw_metadata={"currency": company.currency, "symbol": symbol_clean}
+                        )
+                        fresh_insights = generate_auto_insights(ds_temp)
+                        if fresh_insights and fresh_insights.get("trends"):
+                            trends_data = fresh_insights["trends"]
+                            if isinstance(cached_insights, dict):
+                                cached_insights["trends"] = fresh_insights["trends"]
+                    except Exception as err:
+                        logger.debug(f"Failed to refresh cached trends: {err}")
+
                 return {
                     "company_id": company.id,
                     "symbol": company.symbol or company.ticker,
@@ -254,7 +285,7 @@ def get_or_fetch_company_analysis(
                     "is_cached": True,
                     "quote": quote,
                     "periods": periods_list,
-                    "trends": company.metadata_json.get("trends", {}),
+                    "trends": trends_data,
                     "scenarios": cached_scenarios,
                     "auto_insights": cached_insights
                 }

@@ -6,8 +6,9 @@ import { formatFinancialValue } from '@/lib/formatters';
 interface DataPoint {
   period: string;
   revenue: number;
-  gross_profit: number;
+  gross_profit?: number;
   net_income: number;
+  ebitda?: number;
 }
 
 interface ChartRevenueProps {
@@ -19,6 +20,7 @@ interface ChartRevenueProps {
 export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, currency = 'INR' }) => {
   const [hoverIndex, setHoverIndex] = useState<number | null>(null);
   const [timeframe, setTimeframe] = useState<'6M' | '1Y' | '3Y' | '5Y'>('5Y');
+  const [showEbitda, setShowEbitda] = useState<boolean>(true);
 
   if (!data || data.length === 0) return null;
 
@@ -31,8 +33,9 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
   };
 
   const activeData = getFilteredData().length > 1 ? getFilteredData() : data;
+  const hasEbitda = activeData.some((d) => d.ebitda !== undefined && d.ebitda !== null && d.ebitda !== 0);
 
-  const maxVal = Math.max(...activeData.map((d) => d.revenue), 1) * 1.15;
+  const maxVal = Math.max(...activeData.map((d) => Math.max(d.revenue || 0, (showEbitda && d.ebitda) ? d.ebitda : 0)), 1) * 1.15;
   const height = 240;
   const width = 560;
   const paddingX = 48;
@@ -48,13 +51,17 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
   };
 
   // SVG paths
-  const revenuePoints = activeData.map((d, i) => `${getX(i)},${getY(d.revenue)}`).join(' ');
-  const netIncomePoints = activeData.map((d, i) => `${getX(i)},${getY(d.net_income)}`).join(' ');
+  const revenuePoints = activeData.map((d, i) => `${getX(i)},${getY(d.revenue || 0)}`).join(' ');
+  const netIncomePoints = activeData.map((d, i) => `${getX(i)},${getY(d.net_income || 0)}`).join(' ');
+  const ebitdaPoints = activeData.map((d, i) => `${getX(i)},${getY(d.ebitda || 0)}`).join(' ');
 
-  const areaPath = `M ${getX(0)},${getY(activeData[0].revenue)} ${activeData
+  const areaPath = `M ${getX(0)},${getY(activeData[0].revenue || 0)} ${activeData
     .slice(1)
-    .map((d, i) => `L ${getX(i + 1)},${getY(d.revenue)}`)
+    .map((d, i) => `L ${getX(i + 1)},${getY(d.revenue || 0)}`)
     .join(' ')} L ${getX(activeData.length - 1)},${height - paddingY} L ${getX(0)},${height - paddingY} Z`;
+
+  // Y-axis ticks sorted strictly ascending from bottom (0) to top (maxVal)
+  const yAxisTicks = [0.0, 0.25, 0.5, 0.75, 1.0];
 
   return (
     <div className="bg-[#11141B] border border-white/[0.07] rounded-xl p-5 relative shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]">
@@ -62,12 +69,12 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4">
         <div>
           <div className="flex items-center gap-2">
-            <h3 className="font-semibold text-sm text-white">Revenue & Net Income Trajectory</h3>
+            <h3 className="font-semibold text-sm text-white">Revenue, EBITDA & Net Income Trajectory</h3>
             <span className="text-[10px] uppercase font-mono px-1.5 py-0.2 rounded bg-sky-500/10 text-sky-400 border border-sky-500/20">
               Audited
             </span>
           </div>
-          <p className="text-xs text-slate-400 mt-0.5">Multi-year financial expansion curve</p>
+          <p className="text-xs text-slate-400 mt-0.5">Multi-year annual financial expansion curve</p>
         </div>
 
         {/* Timeframe Pill Toggles & Legend */}
@@ -89,12 +96,25 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
             ))}
           </div>
 
-          {/* Legend */}
-          <div className="hidden sm:flex items-center gap-3 text-xs pl-2 border-l border-white/[0.08]">
+          {/* Legend with EBITDA toggle */}
+          <div className="hidden sm:flex items-center gap-2.5 text-xs pl-2 border-l border-white/[0.08]">
             <div className="flex items-center gap-1.5 text-slate-300 text-[11px]">
               <span className="h-2 w-2 rounded-full bg-sky-400 shadow-sm shadow-sky-400/50" />
               <span>Revenue</span>
             </div>
+            {hasEbitda && (
+              <button
+                type="button"
+                onClick={() => setShowEbitda(!showEbitda)}
+                className={`flex items-center gap-1.5 text-[11px] px-1.5 py-0.5 rounded transition-all ${
+                  showEbitda ? 'text-amber-300 bg-amber-500/10 border border-amber-500/30 font-semibold' : 'text-slate-500 hover:text-slate-300'
+                }`}
+                title="Toggle EBITDA series"
+              >
+                <span className={`h-2 w-2 rounded-full ${showEbitda ? 'bg-amber-400' : 'bg-slate-600'}`} />
+                <span>EBITDA</span>
+              </button>
+            )}
             <div className="flex items-center gap-1.5 text-slate-300 text-[11px]">
               <span className="h-2 w-2 rounded-full bg-emerald-400" />
               <span>Net Income</span>
@@ -108,13 +128,13 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
         <svg viewBox={`0 0 ${width} ${height}`} className="w-full h-60 overflow-visible">
           <defs>
             <linearGradient id="skyAreaGrad" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor="#38BDF8" stopOpacity="0.22" />
+              <stop offset="0%" stopColor="#38BDF8" stopOpacity="0.20" />
               <stop offset="100%" stopColor="#38BDF8" stopOpacity="0.0" />
             </linearGradient>
           </defs>
 
-          {/* Grid lines */}
-          {[0.25, 0.5, 0.75, 1.0].map((ratio, i) => {
+          {/* Grid lines strictly ascending from bottom (0) to top (maxVal) */}
+          {yAxisTicks.map((ratio, i) => {
             const y = height - paddingY - ratio * (height - 2 * paddingY);
             return (
               <g key={i}>
@@ -141,7 +161,7 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
             );
           })}
 
-          {/* Area fill */}
+          {/* Area fill for Revenue */}
           <path d={areaPath} fill="url(#skyAreaGrad)" />
 
           {/* Revenue Line */}
@@ -153,6 +173,19 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
             strokeLinejoin="round"
             points={revenuePoints}
           />
+
+          {/* Optional EBITDA Line */}
+          {showEbitda && hasEbitda && (
+            <polyline
+              fill="none"
+              stroke="#F59E0B"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeDasharray="4 2"
+              points={ebitdaPoints}
+            />
+          )}
 
           {/* Net Income Line */}
           <polyline
@@ -168,7 +201,7 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
           {/* Data Points & Dark Glass Tooltip */}
           {activeData.map((d, i) => {
             const cx = getX(i);
-            const cy = getY(d.revenue);
+            const cy = getY(d.revenue || 0);
             const isHovered = hoverIndex === i;
 
             return (
@@ -212,18 +245,18 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
                       strokeDasharray="2 2"
                     />
                     <rect
-                      x={Math.min(Math.max(cx - 65, 10), width - 140)}
-                      y={Math.max(cy - 52, 5)}
-                      width="130"
-                      height="46"
+                      x={Math.min(Math.max(cx - 70, 10), width - 150)}
+                      y={Math.max(cy - (showEbitda && d.ebitda ? 62 : 52), 5)}
+                      width="140"
+                      height={showEbitda && d.ebitda ? 58 : 46}
                       rx="8"
                       fill="#0C0E14"
                       stroke="rgba(255, 255, 255, 0.15)"
                       strokeWidth="1"
                     />
                     <text
-                      x={Math.min(Math.max(cx - 65, 10) + 65, width - 75)}
-                      y={Math.max(cy - 52, 5) + 16}
+                      x={Math.min(Math.max(cx - 70, 10) + 70, width - 80)}
+                      y={Math.max(cy - (showEbitda && d.ebitda ? 62 : 52), 5) + 14}
                       fill="#F8FAFC"
                       fontSize="10"
                       fontFamily="monospace"
@@ -233,8 +266,8 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
                       {d.period}
                     </text>
                     <text
-                      x={Math.min(Math.max(cx - 65, 10) + 65, width - 75)}
-                      y={Math.max(cy - 52, 5) + 29}
+                      x={Math.min(Math.max(cx - 70, 10) + 70, width - 80)}
+                      y={Math.max(cy - (showEbitda && d.ebitda ? 62 : 52), 5) + 27}
                       fill="#38BDF8"
                       fontSize="9"
                       fontFamily="monospace"
@@ -242,9 +275,21 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
                     >
                       Rev: {formatFinancialValue(d.revenue, currency)}
                     </text>
+                    {showEbitda && d.ebitda !== undefined && d.ebitda !== null && (
+                      <text
+                        x={Math.min(Math.max(cx - 70, 10) + 70, width - 80)}
+                        y={Math.max(cy - 62, 5) + 40}
+                        fill="#F59E0B"
+                        fontSize="9"
+                        fontFamily="monospace"
+                        textAnchor="middle"
+                      >
+                        EBITDA: {formatFinancialValue(d.ebitda, currency)}
+                      </text>
+                    )}
                     <text
-                      x={Math.min(Math.max(cx - 65, 10) + 65, width - 75)}
-                      y={Math.max(cy - 52, 5) + 40}
+                      x={Math.min(Math.max(cx - 70, 10) + 70, width - 80)}
+                      y={Math.max(cy - (showEbitda && d.ebitda ? 62 : 52), 5) + (showEbitda && d.ebitda ? 52 : 39)}
                       fill="#10B981"
                       fontSize="9"
                       fontFamily="monospace"

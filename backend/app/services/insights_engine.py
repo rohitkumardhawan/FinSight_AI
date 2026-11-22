@@ -11,10 +11,12 @@ import math
 from app.schemas.dataset import ParsedCompanyDataset, FinancialPeriodRecord
 
 
-def calculate_cagr(start_val: Optional[float], end_val: Optional[float], years: int) -> Optional[float]:
-    """CAGR = (End / Start) ** (1 / years) - 1. Returns percentage rounded to 2 decimals."""
-    if start_val is None or end_val is None or start_val <= 0 or end_val <= 0 or years <= 0:
+def calculate_cagr(start_val: Optional[float], end_val: Optional[float], years: int) -> Any:
+    """CAGR = (End / Start) ** (1 / years) - 1. Returns percentage rounded to 2 decimals or 'N/M' if start/end <= 0."""
+    if start_val is None or end_val is None or years <= 0:
         return None
+    if start_val <= 0 or end_val <= 0:
+        return "N/M"
     try:
         cagr = ((end_val / start_val) ** (1.0 / years) - 1.0) * 100.0
         return round(cagr, 2)
@@ -170,6 +172,7 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
         inventory_turnover = round(inv_cogs / p.inventory, 2) if (inv_cogs and p.inventory and p.inventory > 0) else None
 
         label = f"FY{str(p.fiscal_year)[-2:]}"
+        ebitda_m_calc = round((ebitda_val / p.revenue) * 100, 2) if (ebitda_val is not None and p.revenue and p.revenue > 0) else getattr(p, "ebitda_margin_pct", None)
         time_series_data.append({
             "period": label,
             "fiscal_year": p.fiscal_year,
@@ -178,6 +181,7 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
             "operating_income": p.operating_income,
             "ebit": ebit_val,
             "ebitda": ebitda_val,
+            "ebitda_margin_pct": ebitda_m_calc,
             "net_income": p.net_income,
             "opm_pct": opm,
             "net_margin_pct": net_margin,
@@ -197,6 +201,7 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
             "debt_to_ebitda": debt_to_ebitda,
             "roe_pct": roe,
             "roic_pct": roic_pct,
+            "roce_pct": roic_pct,
             "ev_to_ebitda": ev_to_ebitda,
             "ev_to_revenue": ev_to_revenue,
             "price_to_book": price_to_book,
@@ -206,30 +211,59 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
             "inventory_turnover": inventory_turnover,
         })
 
-    # 2. Derive Multi-Year CAGRs if not already provided in Screener TRENDS
+    # 2. Derive Multi-Year CAGRs across Annual Periods
     trends = dataset.trends
-    if not trends and len(annual_periods) >= 3:
+    if len(annual_periods) >= 3:
         latest = annual_periods[-1]
-        cagr_map: Dict[str, Dict[str, Optional[float]]] = {
+        cagr_map: Dict[str, Dict[str, Any]] = {
             "sales_growth": {},
+            "ebitda_growth": {},
             "ebit_growth": {},
             "net_profit_growth": {},
             "eps_growth": {},
             "fcf_growth": {},
         }
         periods_config = [("3 YEARS", 3), ("5 YEARS", 5), ("7 YEARS", 7), ("10 YEARS", 10)]
+        valid_headers = []
         for label, span in periods_config:
             if len(annual_periods) > span:
+                valid_headers.append(label)
                 base_p = annual_periods[-(span + 1)]
                 cagr_map["sales_growth"][label] = calculate_cagr(base_p.revenue, latest.revenue, span)
+                
+                base_da = abs(base_p.depreciation_amortization or 0.0)
+                base_ebitda = base_p.ebitda if base_p.ebitda is not None else (((base_p.operating_income if base_p.operating_income is not None else base_p.ebit) or 0.0) + base_da)
+                lat_da = abs(latest.depreciation_amortization or 0.0)
+                lat_ebitda = latest.ebitda if latest.ebitda is not None else (((latest.operating_income if latest.operating_income is not None else latest.ebit) or 0.0) + lat_da)
+                cagr_map["ebitda_growth"][label] = calculate_cagr(base_ebitda, lat_ebitda, span)
+
                 base_ebit = base_p.ebit if base_p.ebit is not None else base_p.operating_income
                 lat_ebit = latest.ebit if latest.ebit is not None else latest.operating_income
                 cagr_map["ebit_growth"][label] = calculate_cagr(base_ebit, lat_ebit, span)
                 cagr_map["net_profit_growth"][label] = calculate_cagr(base_p.net_income, latest.net_income, span)
                 cagr_map["eps_growth"][label] = calculate_cagr(base_p.eps, latest.eps, span)
                 cagr_map["fcf_growth"][label] = calculate_cagr(base_p.free_cash_flow, latest.free_cash_flow, span)
+        
+        if not valid_headers and len(annual_periods) >= 3:
+            span = len(annual_periods) - 1
+            lbl = f"{span} YEARS"
+            valid_headers = [lbl]
+            base_p = annual_periods[0]
+            cagr_map["sales_growth"][lbl] = calculate_cagr(base_p.revenue, latest.revenue, span)
+            base_da = abs(base_p.depreciation_amortization or 0.0)
+            base_ebitda = base_p.ebitda if base_p.ebitda is not None else (((base_p.operating_income if base_p.operating_income is not None else base_p.ebit) or 0.0) + base_da)
+            lat_da = abs(latest.depreciation_amortization or 0.0)
+            lat_ebitda = latest.ebitda if latest.ebitda is not None else (((latest.operating_income if latest.operating_income is not None else latest.ebit) or 0.0) + lat_da)
+            cagr_map["ebitda_growth"][lbl] = calculate_cagr(base_ebitda, lat_ebitda, span)
+            base_ebit = base_p.ebit if base_p.ebit is not None else base_p.operating_income
+            lat_ebit = latest.ebit if latest.ebit is not None else latest.operating_income
+            cagr_map["ebit_growth"][lbl] = calculate_cagr(base_ebit, lat_ebit, span)
+            cagr_map["net_profit_growth"][lbl] = calculate_cagr(base_p.net_income, latest.net_income, span)
+            cagr_map["eps_growth"][lbl] = calculate_cagr(base_p.eps, latest.eps, span)
+            cagr_map["fcf_growth"][lbl] = calculate_cagr(base_p.free_cash_flow, latest.free_cash_flow, span)
+
         trends = {
-            "headers": [label for label, span in periods_config if len(annual_periods) > span],
+            "headers": valid_headers,
             "metrics": cagr_map
         }
 
