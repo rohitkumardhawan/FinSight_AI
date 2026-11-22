@@ -172,6 +172,18 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
     best_case = special_periods.get("Best Case")
     worst_case = special_periods.get("Worst Case")
 
+    # Canonical Trailing P/E determination (prefer live quote, else current_price / latest_annual_eps)
+    raw_meta = dataset.raw_metadata or {}
+    quote_pe = raw_meta.get("trailing_pe") or raw_meta.get("trailingPE")
+    if quote_pe and float(quote_pe) > 0:
+        canonical_pe = round(float(quote_pe), 2)
+    elif trailing and trailing.share_price and trailing.eps and trailing.eps > 0:
+        canonical_pe = round(trailing.share_price / trailing.eps, 2)
+    elif trailing and trailing.pe_ratio and float(trailing.pe_ratio) > 0:
+        canonical_pe = round(float(trailing.pe_ratio), 2)
+    else:
+        canonical_pe = None
+
     if trailing and (best_case or worst_case):
         trailing_price = trailing.share_price
         best_price = best_case.share_price if best_case else None
@@ -200,19 +212,20 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
             "worst_case_price": worst_price,
             "upside_best_pct": upside_best,
             "downside_worst_pct": downside_worst,
-            "trailing_pe": trailing.pe_ratio,
+            "trailing_pe": canonical_pe or trailing.pe_ratio,
             "historical_avg_pe": avg_pe,
             "historical_median_pe": median_pe,
             "trailing_revenue": trailing.revenue,
             "best_case_revenue": best_case.revenue if best_case else None,
             "worst_case_revenue": worst_case.revenue if worst_case else None,
         }
-    elif trailing and (trailing.share_price or trailing.pe_ratio):
+    elif trailing and (trailing.share_price or trailing.pe_ratio or canonical_pe):
         # Deterministic 1-year forward Base / Best / Worst scenarios for auto-fetched equities
         trailing_price = trailing.share_price or 100.0
-        current_eps = trailing.eps or (round(trailing_price / trailing.pe_ratio, 2) if trailing.pe_ratio and trailing.pe_ratio > 0 else 5.0)
+        active_pe = canonical_pe or trailing.pe_ratio or 22.0
+        current_eps = trailing.eps or (round(trailing_price / active_pe, 2) if active_pe > 0 else 5.0)
         historical_pes = [p.pe_ratio for p in annual_periods if p.pe_ratio is not None and p.pe_ratio > 0]
-        avg_pe = round(sum(historical_pes) / len(historical_pes), 2) if historical_pes else (trailing.pe_ratio or 22.0)
+        avg_pe = round(sum(historical_pes) / len(historical_pes), 2) if historical_pes else active_pe
         median_pe = avg_pe
 
         # Growth distribution
@@ -241,7 +254,7 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
             "worst_case_price": worst_price,
             "upside_best_pct": upside_best,
             "downside_worst_pct": downside_worst,
-            "trailing_pe": trailing.pe_ratio or round(trailing_price / current_eps, 2),
+            "trailing_pe": canonical_pe or round(trailing_price / current_eps, 2),
             "historical_avg_pe": avg_pe,
             "historical_median_pe": median_pe,
             "trailing_revenue": trailing.revenue,
@@ -318,12 +331,13 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
         })
 
         # KPI 4: Valuation or Capital Return (P/E or ROE / FCF)
-        if latest_period.pe_ratio is not None:
+        pe_display = canonical_pe or latest_period.pe_ratio
+        if pe_display is not None:
             eps_str = f"EPS: {format_per_share(latest_period.eps, currency)}" if latest_period.eps is not None else None
             kpi_cards.append({
                 "label": "Price-to-Earnings (P/E)",
-                "value": f"{latest_period.pe_ratio:.1f}x",
-                "raw_value": latest_period.pe_ratio,
+                "value": f"{pe_display:.2f}x",
+                "raw_value": pe_display,
                 "change": eps_str,
                 "is_positive": True,
                 "subtext": "Institutional Valuation Multiple"

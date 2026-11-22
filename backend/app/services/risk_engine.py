@@ -117,6 +117,17 @@ def get_risk_tier(score: float) -> str:
         return "High"
 
 
+def format_mult(val: Any, suffix: str = "x") -> str:
+    """Strict null-safe formatter for multiples preventing Nonex or N/Ax bugs."""
+    if val is None or val == "N/A" or str(val).strip().lower() in ("none", "null", "nan"):
+        return "N/A"
+    try:
+        f = float(val)
+        return f"{f:.2f}{suffix}"
+    except (ValueError, TypeError):
+        return "N/A"
+
+
 def calculate_risk_intelligence(
     company: Company,
     periods: List[FinancialPeriod]
@@ -208,8 +219,8 @@ def calculate_risk_intelligence(
     leverage_score = round((de_score + coverage_score + cr_score) / 3.0, 1)
     leverage_tier = get_risk_tier(leverage_score)
     leverage_assessment = (
-        f"Debt-to-Equity is {de_ratio if de_ratio is not None else 'N/A'}, "
-        f"Interest Coverage is {int_coverage}x, and Current Ratio stands at {curr_ratio if curr_ratio is not None else 'N/A'}."
+        f"Debt-to-Equity is {format_mult(de_ratio, 'x')}, "
+        f"Interest Coverage is {format_mult(int_coverage, 'x')}, and Current Ratio stands at {format_mult(curr_ratio, '')}."
     )
 
     pillar_leverage = LeverageLiquidityPillar(
@@ -302,8 +313,15 @@ def calculate_risk_intelligence(
     # =========================================================
     # Pillar 3: Valuation Stretch
     # =========================================================
-    # Current P/E
-    current_pe = quote.get("trailing_pe") or latest_m.get("pe_ratio")
+    # Current P/E (canonical: quote trailing_pe, then share_price / eps, then latest_m pe_ratio)
+    current_pe = quote.get("trailing_pe") or quote.get("trailingPE")
+    if not current_pe and latest_p:
+        lp_share = latest_m.get("share_price")
+        lp_eps = latest_m.get("eps")
+        if lp_share and lp_eps and float(lp_eps) > 0:
+            current_pe = round(float(lp_share) / float(lp_eps), 2)
+    if not current_pe and latest_m.get("pe_ratio"):
+        current_pe = latest_m.get("pe_ratio")
     current_pe = round(float(current_pe), 2) if current_pe and float(current_pe) > 0 else None
 
     # Historical average P/E
@@ -357,8 +375,8 @@ def calculate_risk_intelligence(
     valuation_score = round((stretch_score + dcf_score) / 2.0, 1)
     valuation_tier = get_risk_tier(valuation_score)
     valuation_assessment = (
-        f"Current P/E of {current_pe if current_pe is not None else 'N/A'}x compares to {avg_pe if avg_pe is not None else 'N/A'}x historical avg "
-        f"(stretch: {stretch_multiple}x). DCF downside risk is {dcf_downside_pct}% relative to intrinsic target of {currency} {dcf_intrinsic}."
+        f"Current P/E of {format_mult(current_pe, 'x')} compares to {format_mult(avg_pe, 'x')} historical avg "
+        f"(stretch: {format_mult(stretch_multiple, 'x')}). DCF downside risk is {dcf_downside_pct}% relative to intrinsic target of {currency} {dcf_intrinsic}."
     )
 
     pillar_valuation = ValuationStretchPillar(

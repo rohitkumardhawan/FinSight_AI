@@ -193,6 +193,26 @@ def get_or_fetch_company_analysis(
                         except Exception as rec_err:
                             logger.debug(f"Failed to refresh cached auto_insights formatting: {rec_err}")
 
+                # Ensure canonical trailing_pe is synchronized between quote and scenario_insights
+                canonical_pe = quote.get("trailing_pe") or quote.get("trailingPE")
+                if not canonical_pe and "auto_insights" in company.metadata_json:
+                    canonical_pe = company.metadata_json["auto_insights"].get("scenario_insights", {}).get("trailing_pe")
+                if not canonical_pe and periods_list:
+                    lp = periods_list[-1]
+                    if quote.get("current_price") and lp.get("eps") and float(lp["eps"]) > 0:
+                        canonical_pe = round(float(quote["current_price"]) / float(lp["eps"]), 2)
+                    elif lp.get("pe_ratio"):
+                        canonical_pe = lp.get("pe_ratio")
+
+                if canonical_pe is not None:
+                    try:
+                        canonical_pe = round(float(canonical_pe), 2)
+                        quote["trailing_pe"] = canonical_pe
+                        if isinstance(cached_insights, dict) and "scenario_insights" in cached_insights and isinstance(cached_insights["scenario_insights"], dict):
+                            cached_insights["scenario_insights"]["trailing_pe"] = canonical_pe
+                    except Exception:
+                        pass
+
                 norm_exch = "NSE" if (symbol_clean.endswith(".NS") or (company.exchange or "").upper() == "NSI") else (company.exchange or "GLOBAL")
 
                 return {
@@ -354,7 +374,9 @@ async def ask_company_rag_question(
     and returns a grounded answer with citations.
     Supports either integer company ID or ticker symbol (e.g. ASIANPAINT.NS).
     """
-    if company_id.isdigit():
+    if req.dataset_id:
+        target_id = req.dataset_id
+    elif company_id.isdigit():
         target_id = int(company_id)
     else:
         comp, _ = _resolve_company_and_periods(company_id, db)
@@ -376,7 +398,7 @@ def _resolve_company_and_periods(symbol: str, db: Session) -> tuple[Company, Lis
 
     if not company:
         try:
-            fetch_company_data(symbol_clean, db)
+            get_or_fetch_company_analysis(symbol_clean, db=db)
             company = db.execute(
                 select(Company).where(
                     or_(
@@ -403,7 +425,7 @@ def _resolve_company_and_periods(symbol: str, db: Session) -> tuple[Company, Lis
 
     if not periods:
         try:
-            fetch_company_data(symbol_clean, db)
+            get_or_fetch_company_analysis(symbol_clean, refresh=True, db=db)
             periods = (
                 db.query(FinancialPeriod)
                 .filter(FinancialPeriod.company_id == company.id)

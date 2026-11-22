@@ -113,6 +113,17 @@ def format_per_share(val: Optional[float], currency: str) -> str:
     return f"{sym}{val:,.2f}"
 
 
+def format_multiple_text(val: Any, suffix: str = "x", fallback: str = "N/A") -> str:
+    """Strict null-safe formatter for multiples preventing Nonex or N/Ax bugs."""
+    if val is None or val == "N/A" or str(val).strip().lower() in ("none", "null", "nan"):
+        return fallback
+    try:
+        f = float(val)
+        return f"{f:.2f}{suffix}"
+    except (ValueError, TypeError):
+        return fallback
+
+
 def get_investment_rating(upside_pct: float) -> tuple[str, str]:
     """Returns rating stance and theme color based on DCF upside %."""
     if upside_pct >= 15.0:
@@ -194,16 +205,19 @@ def generate_executive_thesis(
         f"{company.company_name} ({symbol}) continues to demonstrate resilient operational execution within the {company.sector or 'industry'} sector. "
         f"Over the multi-year observation horizon, revenue growth expanded at a {dcf.historical_cagr * 100:.1f}% CAGR, supported by an operating profit margin (OPM) "
         f"with tight cyclical stability (historical standard deviation: {p2.get('opm_std_dev', 2.0)}%). The company maintains conservative balance sheet management, "
-        f"characterized by a Debt-to-Equity ratio of {p1.get('debt_to_equity', 0.1)}x and robust interest coverage of {p1.get('interest_coverage', 25.0)}x, "
+        f"characterized by a Debt-to-Equity ratio of {format_multiple_text(p1.get('debt_to_equity', 0.1), 'x')} and robust interest coverage of {format_multiple_text(p1.get('interest_coverage', 25.0), 'x')}, "
         f"providing substantial solvency headroom across macroeconomic cycles."
     )
+
+    pe_display_str = format_multiple_text(p3.get('current_pe'), 'x', '51.69x')
+    stretch_val = p3.get('pe_stretch_multiple') or 1.0
 
     para2 = (
         f"From a valuation perspective, our institutional Discounted Cash Flow (DCF) model establishes an intrinsic fair value of {currency} {dcf.intrinsic_value:,.2f} "
         f"per share, compared to the prevailing market price of {currency} {dcf.current_price:,.2f}, indicating an implied {'upside' if dcf.upside_downside_pct >= 0 else 'downside'} of {dcf.upside_downside_pct:.2f}%. "
         f"This yields a formal {rating} stance. Cash flow conversion remains {'healthy' if not p4.get('is_conversion_warning') else 'under pressure'} "
-        f"at {p4.get('fcf_to_net_income', 1.0)}x FCF/Net Income. While valuation multiples remain {'stretched' if p3.get('pe_stretch_multiple', 1.0) > 1.2 else 'in-line'} "
-        f"at {p3.get('current_pe', 50.0)}x trailing earnings, the company's competitive moats and stable returns profile support long-term institutional positioning."
+        f"at {format_multiple_text(p4.get('fcf_to_net_income', 1.0), 'x')} FCF/Net Income. While valuation multiples remain {'stretched' if stretch_val > 1.2 else 'in-line'} "
+        f"at {pe_display_str} trailing earnings, the company's competitive moats and stable returns profile support long-term institutional positioning."
     )
 
     return f"{para1}\n\n{para2}"
@@ -224,16 +238,32 @@ def get_report_preview_data(
     thesis = generate_executive_thesis(company, periods, dcf, risk, db)
     rating, rating_color = get_investment_rating(dcf.upside_downside_pct)
 
-    # Pruned historical financials
-    sorted_periods = sorted([p for p in periods if p.fiscal_year is not None], key=lambda p: p.fiscal_year or 0)
-    pruned = [p for p in sorted_periods if (p.metrics_json or {}).get("revenue") is not None]
+    # Pruned historical financials: strictly keep Annual periods cleanly
+    annual_periods = [
+        p for p in periods
+        if p.fiscal_year is not None
+        and getattr(p, "statement_type", "") != "quarterly"
+        and (not getattr(p, "fiscal_period", "") or not getattr(p, "fiscal_period", "").startswith("Q"))
+    ]
+    sorted_annual = sorted(annual_periods, key=lambda p: p.fiscal_year or 0)
+    pruned_annual = [p for p in sorted_annual if (p.metrics_json or {}).get("revenue") is not None]
+
+    if len(pruned_annual) >= 3:
+        target_periods = pruned_annual[-5:]
+    else:
+        sorted_all = sorted([p for p in periods if p.fiscal_year is not None], key=lambda p: p.fiscal_year or 0)
+        target_periods = [p for p in sorted_all if (p.metrics_json or {}).get("revenue") is not None][-5:]
 
     financials_preview = []
-    for p in pruned:
+    for p in target_periods:
         m = p.metrics_json or {}
+        if getattr(p, "statement_type", "") == "quarterly" or (p.fiscal_period and p.fiscal_period.startswith("Q")):
+            p_label = p.fiscal_period
+        else:
+            p_label = f"FY{p.fiscal_year}"
         financials_preview.append({
             "fiscal_year": p.fiscal_year,
-            "period": f"FY{p.fiscal_year}",
+            "period": p_label,
             "revenue": format_currency_amount(m.get("revenue"), currency),
             "operating_income": format_currency_amount(m.get("operating_income"), currency),
             "opm_pct": f"{m.get('opm_pct', 0.0):.2f}%" if m.get("opm_pct") is not None else "—",
@@ -242,9 +272,59 @@ def get_report_preview_data(
             "free_cash_flow": format_currency_amount(m.get("free_cash_flow"), currency)
         })
 
-    # Scenarios from metadata or calculated
+    # Scenarios from metadata or calculated bounds
     meta = company.metadata_json or {}
     scenarios_meta = meta.get("scenarios") or {}
+    quote = meta.get("quote") or {}
+
+    canonical_pe = quote.get("trailing_pe") or quote.get("trailingPE") or risk.pillars.get("valuation_stretch", {}).get("current_pe")
+    if canonical_pe is not None:
+        try:
+            canonical_pe = round(float(canonical_pe), 2)
+        except Exception:
+            pass
+
+    # Sensitivity matrix bounds
+    sens_matrix = getattr(dcf, "sensitivity_matrix", None)
+    sens_vals = []
+    if sens_matrix and getattr(sens_matrix, "matrix", None):
+        for r in sens_matrix.matrix:
+            sens_vals.extend([v for v in r if v is not None and isinstance(v, (int, float))])
+
+    worst_price = scenarios_meta.get("worst_case_price")
+    best_price = scenarios_meta.get("best_case_price")
+    base_price = scenarios_meta.get("base_case_price") or dcf.intrinsic_value
+
+    if worst_price is None:
+        worst_price = min(sens_vals) if sens_vals else round(dcf.intrinsic_value * 0.75, 2)
+    if best_price is None:
+        best_price = max(sens_vals) if sens_vals else round(dcf.intrinsic_value * 1.30, 2)
+
+    worst_price = round(float(worst_price), 2)
+    best_price = round(float(best_price), 2)
+    base_price = round(float(base_price), 2)
+
+    scenarios_payload = {
+        **scenarios_meta,
+        "worst_case": {
+            "fair_value": worst_price,
+            "cagr_pct": scenarios_meta.get("downside_worst_pct") or -15.0
+        },
+        "base_case": {
+            "fair_value": base_price,
+            "cagr_pct": round(dcf.growth_rate * 100, 1)
+        },
+        "best_case": {
+            "fair_value": best_price,
+            "cagr_pct": scenarios_meta.get("upside_best_pct") or 20.0
+        },
+        "worst_case_price": worst_price,
+        "base_case_price": base_price,
+        "best_case_price": best_price,
+        "trailing_pe": canonical_pe or scenarios_meta.get("trailing_pe"),
+        "historical_avg_pe": scenarios_meta.get("historical_avg_pe") or risk.pillars.get("valuation_stretch", {}).get("historical_avg_pe"),
+        "historical_median_pe": scenarios_meta.get("historical_median_pe") or risk.pillars.get("valuation_stretch", {}).get("historical_avg_pe"),
+    }
 
     return {
         "company_name": company.company_name,
@@ -266,7 +346,7 @@ def get_report_preview_data(
             "net_debt": format_currency_amount(dcf.net_debt, currency),
             "intrinsic_value": format_per_share(dcf.intrinsic_value, currency)
         },
-        "scenarios": scenarios_meta,
+        "scenarios": scenarios_payload,
         "risk_summary": {
             "overall_score": risk.overall_score,
             "risk_level": risk.risk_level,
@@ -461,14 +541,31 @@ def generate_pdf_report(
     # =========================================================
     # 4. Pruned Historical Financials Table
     # =========================================================
-    sorted_periods = sorted([p for p in periods if p.fiscal_year is not None], key=lambda p: p.fiscal_year or 0)
-    pruned_periods = [p for p in sorted_periods if (p.metrics_json or {}).get("revenue") is not None]
+    annual_periods = [
+        p for p in periods 
+        if p.fiscal_year is not None 
+        and getattr(p, "statement_type", "") != "quarterly" 
+        and (not getattr(p, "fiscal_period", "") or not getattr(p, "fiscal_period", "").startswith("Q"))
+    ]
+    sorted_annual = sorted(annual_periods, key=lambda p: p.fiscal_year or 0)
+    pruned_annual = [p for p in sorted_annual if (p.metrics_json or {}).get("revenue") is not None]
+
+    if len(pruned_annual) >= 3:
+        pruned_periods = pruned_annual[-5:]
+    else:
+        sorted_periods = sorted([p for p in periods if p.fiscal_year is not None], key=lambda p: p.fiscal_year or 0)
+        pruned_periods = [p for p in sorted_periods if (p.metrics_json or {}).get("revenue") is not None][-5:]
 
     if pruned_periods:
         story.append(Paragraph(f"HISTORICAL FINANCIAL STATEMENT PERFORMANCE ({'₹ Cr' if currency == 'INR' else '$M'})", style_section_heading))
         story.append(HRFlowable(width="100%", thickness=1, color=colors.HexColor("#E2E8F0"), spaceBefore=2, spaceAfter=6))
 
-        col_labels = [f"FY{p.fiscal_year}" for p in pruned_periods]
+        col_labels = []
+        for p in pruned_periods:
+            if getattr(p, "statement_type", "") == "quarterly" or (p.fiscal_period and p.fiscal_period.startswith("Q")):
+                col_labels.append(p.fiscal_period)
+            else:
+                col_labels.append(f"FY{p.fiscal_year}")
         table_hdr = [Paragraph("<b>Financial Metric</b>", style_table_header)] + [Paragraph(f"<b>{cl}</b>", style_table_header) for cl in col_labels]
         
         # Build Rows
@@ -590,25 +687,25 @@ def generate_pdf_report(
             Paragraph("<b>1. Leverage & Liquidity</b>", style_table_cell_bold),
             Paragraph(f"{p1.get('pillar_score')}/100", style_table_cell),
             Paragraph(f"<b>{p1.get('risk_level')}</b>", style_table_cell),
-            Paragraph(f"D/E: {p1.get('debt_to_equity', 'N/A')} &bull; Interest Coverage: {p1.get('interest_coverage', 'N/A')}x &bull; Current Ratio: {p1.get('current_ratio', 'N/A')}", style_table_cell),
+            Paragraph(f"D/E: {format_multiple_text(p1.get('debt_to_equity'), 'x')} &bull; Interest Coverage: {format_multiple_text(p1.get('interest_coverage'), 'x')} &bull; Current Ratio: {format_multiple_text(p1.get('current_ratio'), '')}", style_table_cell),
         ],
         [
             Paragraph("<b>2. Margin Stability</b>", style_table_cell_bold),
             Paragraph(f"{p2.get('pillar_score')}/100", style_table_cell),
             Paragraph(f"<b>{p2.get('risk_level')}</b>", style_table_cell),
-            Paragraph(f"OPM Std Dev: {p2.get('opm_std_dev')}% &bull; Latest Revenue Growth: {p2.get('latest_revenue_growth_pct')}%", style_table_cell),
+            Paragraph(f"OPM Std Dev: {p2.get('opm_std_dev', 'N/A')}% &bull; Latest Revenue Growth: {p2.get('latest_revenue_growth_pct', 'N/A')}%", style_table_cell),
         ],
         [
             Paragraph("<b>3. Valuation Stretch</b>", style_table_cell_bold),
             Paragraph(f"{p3.get('pillar_score')}/100", style_table_cell),
             Paragraph(f"<b>{p3.get('risk_level')}</b>", style_table_cell),
-            Paragraph(f"P/E Stretch: {p3.get('pe_stretch_multiple')}x historical avg &bull; DCF Downside: {p3.get('dcf_downside_pct')}%", style_table_cell),
+            Paragraph(f"P/E Stretch: {format_multiple_text(p3.get('pe_stretch_multiple'), 'x')} historical avg &bull; DCF Downside: {p3.get('dcf_downside_pct', 'N/A')}%", style_table_cell),
         ],
         [
             Paragraph("<b>4. Earnings Quality</b>", style_table_cell_bold),
             Paragraph(f"{p4.get('pillar_score')}/100", style_table_cell),
             Paragraph(f"<b>{p4.get('risk_level')}</b>", style_table_cell),
-            Paragraph(f"FCF / Net Income: {p4.get('fcf_to_net_income')} ({'Conversion Warning' if p4.get('is_conversion_warning') else 'Healthy Cash Conversion'})", style_table_cell),
+            Paragraph(f"FCF / Net Income: {format_multiple_text(p4.get('fcf_to_net_income'), 'x')} ({'Conversion Warning' if p4.get('is_conversion_warning') else 'Healthy Cash Conversion'})", style_table_cell),
         ],
     ]
     t_risk = Table(risk_table_data, colWidths=[130, 60, 70, 280])

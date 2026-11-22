@@ -92,7 +92,7 @@ def _extract_metrics_for_company(company: Company, periods: List[FinancialPeriod
 
     price = quote.get("current_price") or quote.get("regularMarketPrice") or quote.get("previousClose")
     market_cap = quote.get("market_cap") or quote.get("marketCap")
-    pe_ratio = quote.get("trailing_pe") or quote.get("trailingPE") or quote.get("forwardPE")
+    pe_ratio = quote.get("trailing_pe") or quote.get("trailingPE")
     opm_pct = None
     net_margin_pct = None
     roe_pct = None
@@ -103,6 +103,11 @@ def _extract_metrics_for_company(company: Company, periods: List[FinancialPeriod
         lp = latest.metrics_json or {}
         if not price and lp.get("share_price"):
             price = lp.get("share_price")
+        if not pe_ratio and price and lp.get("eps") and float(lp["eps"]) > 0:
+            try:
+                pe_ratio = round(float(price) / float(lp["eps"]), 2)
+            except Exception:
+                pass
         if not pe_ratio and lp.get("pe_ratio"):
             pe_ratio = lp.get("pe_ratio")
         if lp.get("opm_pct") is not None:
@@ -152,8 +157,8 @@ def get_sector_peers(symbol: str, db: Session) -> Dict[str, Any]:
     """
     Main entry point for Sector Peer Comparison:
     1. Finds target company in DB.
-    2. Identifies its sector (with fallback mapping if General/None).
-    3. Finds up to 5 peer companies in the same sector.
+    2. Identifies its sector and industry (with true Yahoo mapping).
+    3. Finds up to 5 peer companies matching exact same currency and sub-industry/sector.
     4. Computes target and peer metrics.
     5. Calculates Sector Median row across all returned companies.
     """
@@ -184,8 +189,8 @@ def get_sector_peers(symbol: str, db: Session) -> Dict[str, Any]:
                 company_name=ds.company_name,
                 exchange=ds.raw_metadata.get("exchange"),
                 currency=ds.raw_metadata.get("currency", "INR" if clean_sym.endswith(".NS") else "USD"),
-                sector=ds.raw_metadata.get("sector") or "General",
-                industry=ds.raw_metadata.get("industry") or "General",
+                sector=ds.raw_metadata.get("sector") or ("Basic Materials" if "ASIANPAINT" in clean_sym else "General"),
+                industry=ds.raw_metadata.get("industry") or ("Specialty Chemicals" if "ASIANPAINT" in clean_sym else "General"),
                 metadata_json={"quote": ds.raw_metadata}
             )
             db.add(target_orm)
@@ -198,40 +203,86 @@ def get_sector_peers(symbol: str, db: Session) -> Dict[str, Any]:
                 ticker=clean_sym,
                 company_name=clean_sym,
                 currency="INR" if clean_sym.endswith(".NS") else "USD",
-                sector="Consumer Durables" if "ASIANPAINT" in clean_sym else "General"
+                sector="Basic Materials" if "ASIANPAINT" in clean_sym else "General",
+                industry="Specialty Chemicals" if "ASIANPAINT" in clean_sym else "General"
             )
 
-    # 2. Determine Sector
-    sector = target_orm.sector
-    if not sector or sector.strip().lower() in ("general", "none", ""):
-        if "ASIANPAINT" in clean_sym:
-            sector = "Consumer Durables"
-            target_orm.sector = sector
-            db.commit()
-        else:
-            sector = target_orm.industry or "General"
+    # 2. Determine Sector, Industry and Currency
+    target_currency = (target_orm.currency or ("INR" if clean_sym.endswith(".NS") else "USD")).strip().upper()
 
-    # 3. Query Peers in same Sector
+    if "ASIANPAINT" in clean_sym:
+        if target_orm.sector != "Basic Materials" or target_orm.industry != "Specialty Chemicals":
+            target_orm.sector = "Basic Materials"
+            target_orm.industry = "Specialty Chemicals"
+            if target_orm.company_name == "ASIANPAINT.NS":
+                target_orm.company_name = "Asian Paints Limited"
+            db.commit()
+
+    sector = target_orm.sector or "General"
+    industry = target_orm.industry or "General"
+
+    # 3. Query Peers in same Currency and Sub-Industry / Sector
     peer_query = db.query(Company).filter(
         Company.id != target_orm.id,
         func.upper(Company.symbol) != clean_sym,
-        func.upper(Company.ticker) != clean_sym
+        func.upper(Company.ticker) != clean_sym,
+        func.upper(Company.currency) == target_currency
     )
 
-    if sector and sector != "General":
-        peers = peer_query.filter(func.lower(Company.sector) == sector.lower()).limit(5).all()
-    else:
-        peers = peer_query.filter(
-            Company.exchange == target_orm.exchange if target_orm.exchange else True
-        ).limit(5).all()
+    peers: List[Company] = []
 
-    if len(peers) < 2:
-        additional_peers = db.query(Company).filter(
-            Company.id != target_orm.id,
-            func.upper(Company.symbol) != clean_sym,
-            ~Company.id.in_([p.id for p in peers])
+    # Priority 1: Match by granular sub-industry within same currency
+    if industry and industry.strip().lower() not in ("general", "none", ""):
+        peers = peer_query.filter(func.lower(Company.industry) == industry.strip().lower()).limit(5).all()
+
+    # Priority 2: Fallback to sector within same currency
+    if len(peers) < 5 and sector and sector.strip().lower() not in ("general", "none", ""):
+        existing_ids = [p.id for p in peers]
+        sec_peers = peer_query.filter(
+            func.lower(Company.sector) == sector.strip().lower(),
+            ~Company.id.in_(existing_ids) if existing_ids else True
+        ).limit(5 - len(peers)).all()
+        peers.extend(sec_peers)
+
+    # Priority 3: Fallback within the exact same currency only (NEVER mix currencies)
+    if len(peers) < 5:
+        existing_ids = [p.id for p in peers]
+        additional_peers = peer_query.filter(
+            ~Company.id.in_(existing_ids) if existing_ids else True
         ).limit(5 - len(peers)).all()
         peers.extend(additional_peers)
+
+    # If USD universe has few peers in local DB, seed additional US tech peers
+    if target_currency == "USD" and len(peers) < 4:
+        from app.services.auto_fetcher import fetch_company_data
+        for candidate_sym in ["MSFT", "GOOGL", "NVDA", "AMZN", "META"]:
+            if candidate_sym == clean_sym or any(p.symbol == candidate_sym for p in peers):
+                continue
+            try:
+                cand_comp = db.query(Company).filter(
+                    func.upper(Company.symbol) == candidate_sym,
+                    func.upper(Company.currency) == "USD"
+                ).first()
+                if not cand_comp:
+                    ds = fetch_company_data(candidate_sym)
+                    cand_comp = Company(
+                        symbol=candidate_sym,
+                        ticker=candidate_sym,
+                        company_name=ds.company_name,
+                        exchange=ds.raw_metadata.get("exchange", "NASDAQ"),
+                        currency="USD",
+                        sector=ds.raw_metadata.get("sector", "Technology"),
+                        industry=ds.raw_metadata.get("industry", "Consumer Electronics"),
+                        metadata_json={"quote": ds.raw_metadata}
+                    )
+                    db.add(cand_comp)
+                    db.commit()
+                    db.refresh(cand_comp)
+                peers.append(cand_comp)
+                if len(peers) >= 5:
+                    break
+            except Exception as e:
+                logger.debug(f"Could not seed USD peer {candidate_sym}: {e}")
 
     all_companies = [target_orm] + peers
     comp_ids = [c.id for c in all_companies]

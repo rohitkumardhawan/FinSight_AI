@@ -523,15 +523,23 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
           {kpis.map((kpi: any, i: number) => {
             let displayVal = kpi.value || 'N/A';
-            if (currency === 'INR') {
-              if (kpi.raw_value !== undefined && kpi.raw_value !== null && !kpi.label.includes('P/E') && !kpi.label.includes('ROE')) {
-                displayVal = formatFinancialValue(kpi.raw_value, 'INR');
-              } else if (typeof displayVal === 'string' && displayVal.startsWith('$') && displayVal.endsWith('M')) {
+            const isRatio = kpi.label.includes('P/E') || kpi.label.includes('ROE') || kpi.label.includes('Margin') || kpi.label.includes('%');
+
+            if (kpi.raw_value !== undefined && kpi.raw_value !== null && !isRatio) {
+              displayVal = formatFinancialValue(kpi.raw_value, currency);
+            } else if (currency === 'INR') {
+              if (typeof displayVal === 'string' && displayVal.startsWith('$') && displayVal.endsWith('M')) {
                 const numericStr = displayVal.replace('$', '').replace('M', '').replace(/,/g, '');
                 const num = parseFloat(numericStr);
                 if (!isNaN(num)) {
                   displayVal = formatFinancialValue(num, 'INR');
                 }
+              }
+            } else if (!isRatio && typeof displayVal === 'string') {
+              const cleanStr = displayVal.replace(/[$,]/g, '').trim();
+              const num = parseFloat(cleanStr);
+              if (!isNaN(num) && (Math.abs(num) >= 1e6 || displayVal.includes('$'))) {
+                displayVal = formatFinancialValue(num, currency || 'USD');
               }
             }
             return (

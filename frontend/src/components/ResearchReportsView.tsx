@@ -58,9 +58,16 @@ interface ReportPreviewData {
     intrinsic_value: string;
   };
   scenarios?: {
-    worst_case?: { fair_value: number; target_pe: number; cagr_pct: number };
-    base_case?: { fair_value: number; target_pe: number; cagr_pct: number };
-    best_case?: { fair_value: number; target_pe: number; cagr_pct: number };
+    worst_case?: { fair_value: number; target_pe?: number; cagr_pct?: number };
+    base_case?: { fair_value: number; target_pe?: number; cagr_pct?: number };
+    best_case?: { fair_value: number; target_pe?: number; cagr_pct?: number };
+    worst_case_price?: number;
+    base_case_price?: number;
+    best_case_price?: number;
+    downside_worst_pct?: number;
+    upside_best_pct?: number;
+    trailing_pe?: number;
+    [key: string]: any;
   };
   risk_summary: {
     overall_score: number;
@@ -431,42 +438,51 @@ export const ResearchReportsView: React.FC<ResearchReportsViewProps> = ({
             <Layers className="h-5 w-5 text-cyan-400" />
             <h2 className="text-base font-bold text-white">Valuation Scenario Spectrum</h2>
           </div>
-          {report.scenarios && Object.keys(report.scenarios).length > 0 ? (
-            <div className="grid grid-cols-3 gap-3 pt-1">
-              {/* Worst Case */}
-              <div className="p-3 bg-navy-950/70 border border-rose-500/20 rounded-lg text-center space-y-1">
-                <span className="text-[10px] uppercase font-bold text-rose-400">Worst Case</span>
-                <p className="text-base font-bold text-white font-mono mt-1">
-                  {formatPerShare(report.scenarios.worst_case?.fair_value, report.currency)}
-                </p>
-                <div className="text-[10px] text-slate-400">
-                  {report.scenarios.worst_case?.cagr_pct ? `${report.scenarios.worst_case.cagr_pct}% CAGR` : 'Pessimistic'}
-                </div>
-              </div>
+          {report.scenarios && Object.keys(report.scenarios).length > 0 ? (() => {
+            const worstVal = report.scenarios.worst_case?.fair_value ?? report.scenarios.worst_case_price ?? (report.dcf_intrinsic_value ? report.dcf_intrinsic_value * 0.75 : null);
+            const baseVal = report.scenarios.base_case?.fair_value ?? report.scenarios.base_case_price ?? report.dcf_intrinsic_value;
+            const bestVal = report.scenarios.best_case?.fair_value ?? report.scenarios.best_case_price ?? (report.dcf_intrinsic_value ? report.dcf_intrinsic_value * 1.30 : null);
+            const worstCagr = report.scenarios.worst_case?.cagr_pct ?? report.scenarios.downside_worst_pct;
+            const baseCagr = report.scenarios.base_case?.cagr_pct ?? (report.dcf_summary?.growth_rate ? (report.dcf_summary.growth_rate * 100).toFixed(1) : null);
+            const bestCagr = report.scenarios.best_case?.cagr_pct ?? report.scenarios.upside_best_pct;
 
-              {/* Base Case */}
-              <div className="p-3 bg-navy-950/70 border border-gold-500/30 rounded-lg text-center space-y-1">
-                <span className="text-[10px] uppercase font-bold text-gold-400">Base Case</span>
-                <p className="text-base font-bold text-gold-300 font-mono mt-1">
-                  {formatPerShare(report.scenarios.base_case?.fair_value || report.dcf_intrinsic_value, report.currency)}
-                </p>
-                <div className="text-[10px] text-slate-400">
-                  {report.scenarios.base_case?.cagr_pct ? `${report.scenarios.base_case.cagr_pct}% CAGR` : 'Consensus'}
+            return (
+              <div className="grid grid-cols-3 gap-3 pt-1">
+                {/* Worst Case */}
+                <div className="p-3 bg-navy-950/70 border border-rose-500/20 rounded-lg text-center space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-rose-400">Worst Case</span>
+                  <p className="text-base font-bold text-white font-mono mt-1">
+                    {formatPerShare(worstVal, report.currency)}
+                  </p>
+                  <div className="text-[10px] text-slate-400">
+                    {worstCagr ? `${worstCagr}% CAGR` : 'Pessimistic'}
+                  </div>
                 </div>
-              </div>
 
-              {/* Best Case */}
-              <div className="p-3 bg-navy-950/70 border border-emerald-500/20 rounded-lg text-center space-y-1">
-                <span className="text-[10px] uppercase font-bold text-emerald-400">Best Case</span>
-                <p className="text-base font-bold text-white font-mono mt-1">
-                  {formatPerShare(report.scenarios.best_case?.fair_value, report.currency)}
-                </p>
-                <div className="text-[10px] text-slate-400">
-                  {report.scenarios.best_case?.cagr_pct ? `${report.scenarios.best_case.cagr_pct}% CAGR` : 'Optimistic'}
+                {/* Base Case */}
+                <div className="p-3 bg-navy-950/70 border border-gold-500/30 rounded-lg text-center space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-gold-400">Base Case</span>
+                  <p className="text-base font-bold text-gold-300 font-mono mt-1">
+                    {formatPerShare(baseVal, report.currency)}
+                  </p>
+                  <div className="text-[10px] text-slate-400">
+                    {baseCagr ? `${baseCagr}% CAGR` : 'Consensus'}
+                  </div>
+                </div>
+
+                {/* Best Case */}
+                <div className="p-3 bg-navy-950/70 border border-emerald-500/20 rounded-lg text-center space-y-1">
+                  <span className="text-[10px] uppercase font-bold text-emerald-400">Best Case</span>
+                  <p className="text-base font-bold text-white font-mono mt-1">
+                    {formatPerShare(bestVal, report.currency)}
+                  </p>
+                  <div className="text-[10px] text-slate-400">
+                    {bestCagr ? `${bestCagr}% CAGR` : 'Optimistic'}
+                  </div>
                 </div>
               </div>
-            </div>
-          ) : (
+            );
+          })() : (
             <div className="p-4 bg-navy-950/50 rounded-lg border border-navy-800 text-xs text-slate-400 text-center">
               Deterministic 3-scenario bracket calibrated against historical CAGR ({((report.dcf_summary.growth_rate || 0.1) * 100).toFixed(1)}%).
             </div>

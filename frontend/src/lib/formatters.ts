@@ -82,19 +82,29 @@ export function formatFinancialValue(
   const prefix = isNegative ? '-' : '';
 
   if (absVal >= 1e9) {
-    const inBillions = (absVal / 1e9).toFixed(2);
-    return `${prefix}${symbol}${Number(inBillions).toLocaleString()}B`;
+    const inBillions = (absVal / 1e9).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return `${prefix}${symbol}${inBillions}B`;
   }
   if (absVal >= 1e6) {
-    const inMillions = (absVal / 1e6).toFixed(2);
-    return `${prefix}${symbol}${Number(inMillions).toLocaleString()}M`;
+    const inMillions = (absVal / 1e6).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return `${prefix}${symbol}${inMillions}M`;
   }
   if (absVal >= 1e3) {
-    const inThousands = (absVal / 1e3).toFixed(2);
-    return `${prefix}${symbol}${Number(inThousands).toLocaleString()}K`;
+    const inThousands = (absVal / 1e3).toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    return `${prefix}${symbol}${inThousands}K`;
   }
 
   return `${prefix}${symbol}${absVal.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
+/**
+ * Convenience alias for compact currency formatting ($B, $M, or ₹ Cr).
+ */
+export function formatCurrencyCompact(
+  value: number | string | null | undefined,
+  currency?: string | null
+): string {
+  return formatFinancialValue(value, currency);
 }
 
 /**

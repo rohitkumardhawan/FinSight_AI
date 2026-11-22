@@ -103,7 +103,7 @@ class DatasetDetailResponse(BaseModel):
 
 class AskQuestionRequest(BaseModel):
     """Payload for RAG question answering."""
-    dataset_id: int
+    dataset_id: Optional[int] = None
     question: str
 
 

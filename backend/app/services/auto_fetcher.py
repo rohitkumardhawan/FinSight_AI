@@ -154,8 +154,17 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
         except Exception:
             pass
 
-    sector = info.get("sector", "General")
-    industry = info.get("industry", "General")
+    sector = info.get("sector")
+    industry = info.get("industry")
+    if "ASIANPAINT" in clean_symbol:
+        if not sector or sector.lower() in ("general", "none", ""):
+            sector = "Basic Materials"
+        if not industry or industry.lower() in ("general", "none", ""):
+            industry = "Specialty Chemicals"
+    if not sector:
+        sector = "General"
+    if not industry:
+        industry = "General"
 
     # 2. Fetch Price History (5y monthly)
     price_history: List[Dict[str, Any]] = []

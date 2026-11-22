@@ -34,11 +34,13 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
     company_name: string;
     currency: string;
     exchange: string;
+    trailing_pe?: number | null;
   }>({
     symbol: ticker || 'ASIANPAINT.NS',
     company_name: ticker || 'ASIANPAINT.NS',
     currency: ticker?.endsWith('.NS') ? 'INR' : 'USD',
     exchange: ticker?.endsWith('.NS') ? 'NSE' : 'GLOBAL',
+    trailing_pe: null,
   });
   const [loading, setLoading] = useState<boolean>(false);
   const [recalculating, setRecalculating] = useState<boolean>(false);
@@ -59,6 +61,7 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
         company_name: data.company_name || sym,
         currency: data.currency || (sym.endsWith('.NS') ? 'INR' : 'USD'),
         exchange: normalizeExchange(data.exchange, sym),
+        trailing_pe: data.quote?.trailing_pe || data.auto_insights?.scenario_insights?.trailing_pe || null,
       });
 
       const rawPeriods: any[] = data.periods || [];
@@ -153,7 +156,17 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
     return null;
   };
 
-  const latestPeriod = periods.length > 0 ? periods[periods.length - 1] : null;
+  // Strict filter for Annual (FY) periods so summary KPI cards never read unannualized quarters
+  const annualPeriods = periods.filter(p =>
+    p.fiscal_year &&
+    p.statement_type !== 'quarterly' &&
+    (!p.fiscal_period || !p.fiscal_period.startsWith('Q'))
+  );
+  const latestAnnualPeriod = annualPeriods.length > 0
+    ? annualPeriods[annualPeriods.length - 1]
+    : (periods.length > 0 ? periods[periods.length - 1] : null);
+
+  const annualPeriodBadge = latestAnnualPeriod?.fiscal_period || (latestAnnualPeriod?.fiscal_year ? `FY${latestAnnualPeriod.fiscal_year}` : 'FY');
 
   return (
     <div className="space-y-6">
@@ -243,62 +256,74 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
         </div>
       ) : (
         <>
-          {/* Primary KPI Cards (Latest Period Overview) */}
-          {latestPeriod && (
+          {/* Primary KPI Cards (Latest Annual FY Overview with Period Badge) */}
+          {latestAnnualPeriod && (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-          <div className="bg-navy-900 border border-navy-800 rounded-xl p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              Operating Margin (OPM)
-            </div>
-            <div className="text-2xl font-bold font-mono text-white mt-1">
-              {formatPercent(getOperatingMargin(latestPeriod))}
-            </div>
-            <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-400">
-              <ShieldCheck className="h-3.5 w-3.5" />
-              <span>Core Operational Efficiency</span>
-            </div>
-          </div>
+              <div className="bg-navy-900 border border-navy-800 rounded-xl p-4">
+                <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  <span>Operating Margin (OPM)</span>
+                  <span className="px-1.5 py-0.5 text-[10px] font-bold bg-navy-800 text-gold-400 border border-gold-500/20 rounded">
+                    {annualPeriodBadge}
+                  </span>
+                </div>
+                <div className="text-2xl font-bold font-mono text-white mt-1">
+                  {formatPercent(getOperatingMargin(latestAnnualPeriod))}
+                </div>
+                <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-400">
+                  <ShieldCheck className="h-3.5 w-3.5" />
+                  <span>Core Operational Efficiency</span>
+                </div>
+              </div>
 
-          <div className="bg-navy-900 border border-navy-800 rounded-xl p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              Net Profit Margin
-            </div>
-            <div className="text-2xl font-bold font-mono text-white mt-1">
-              {formatPercent(getNetMargin(latestPeriod))}
-            </div>
-            <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-400">
-              <TrendingUp className="h-3.5 w-3.5" />
-              <span>Net Bottom-Line Margin</span>
-            </div>
-          </div>
+              <div className="bg-navy-900 border border-navy-800 rounded-xl p-4">
+                <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  <span>Net Profit Margin</span>
+                  <span className="px-1.5 py-0.5 text-[10px] font-bold bg-navy-800 text-gold-400 border border-gold-500/20 rounded">
+                    {annualPeriodBadge}
+                  </span>
+                </div>
+                <div className="text-2xl font-bold font-mono text-white mt-1">
+                  {formatPercent(getNetMargin(latestAnnualPeriod))}
+                </div>
+                <div className="mt-2 flex items-center gap-1.5 text-xs text-emerald-400">
+                  <TrendingUp className="h-3.5 w-3.5" />
+                  <span>Net Bottom-Line Margin</span>
+                </div>
+              </div>
 
-          <div className="bg-navy-900 border border-navy-800 rounded-xl p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              Return on Equity (ROE)
-            </div>
-            <div className="text-2xl font-bold font-mono text-white mt-1">
-              {formatPercent(getROE(latestPeriod))}
-            </div>
-            <div className="mt-2 flex items-center gap-1.5 text-xs text-gold-400">
-              <Zap className="h-3.5 w-3.5" />
-              <span>Capital Return Metric</span>
-            </div>
-          </div>
+              <div className="bg-navy-900 border border-navy-800 rounded-xl p-4">
+                <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  <span>Return on Equity (ROE)</span>
+                  <span className="px-1.5 py-0.5 text-[10px] font-bold bg-navy-800 text-gold-400 border border-gold-500/20 rounded">
+                    {annualPeriodBadge}
+                  </span>
+                </div>
+                <div className="text-2xl font-bold font-mono text-white mt-1">
+                  {formatPercent(getROE(latestAnnualPeriod))}
+                </div>
+                <div className="mt-2 flex items-center gap-1.5 text-xs text-gold-400">
+                  <Zap className="h-3.5 w-3.5" />
+                  <span>Annual Capital Return</span>
+                </div>
+              </div>
 
-          <div className="bg-navy-900 border border-navy-800 rounded-xl p-4">
-            <div className="text-[11px] font-semibold uppercase tracking-wider text-slate-400">
-              Price to Earnings (P/E)
+              <div className="bg-navy-900 border border-navy-800 rounded-xl p-4">
+                <div className="flex items-center justify-between text-[11px] font-semibold uppercase tracking-wider text-slate-400">
+                  <span>Price to Earnings (P/E)</span>
+                  <span className="px-1.5 py-0.5 text-[10px] font-bold bg-navy-800 text-gold-400 border border-gold-500/20 rounded">
+                    {annualPeriodBadge}
+                  </span>
+                </div>
+                <div className="text-2xl font-bold font-mono text-white mt-1">
+                  {formatMultiple(companyInfo.trailing_pe || latestAnnualPeriod.pe_ratio)}
+                </div>
+                <div className="mt-2 flex items-center gap-1.5 text-xs text-cyan-400">
+                  <CheckCircle2 className="h-3.5 w-3.5" />
+                  <span>Valuation Multiple</span>
+                </div>
+              </div>
             </div>
-            <div className="text-2xl font-bold font-mono text-white mt-1">
-              {formatMultiple(latestPeriod.pe_ratio)}
-            </div>
-            <div className="mt-2 flex items-center gap-1.5 text-xs text-cyan-400">
-              <CheckCircle2 className="h-3.5 w-3.5" />
-              <span>Valuation Multiple</span>
-            </div>
-          </div>
-        </div>
-      )}
+          )}
 
       {/* Historical Ratios Multi-Year Comparison Table */}
       <div className="bg-navy-900 border border-navy-800 rounded-2xl overflow-hidden shadow-xl">
