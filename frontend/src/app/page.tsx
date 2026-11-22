@@ -11,6 +11,7 @@ import { CompanyDashboardView } from '@/components/CompanyDashboardView';
 import { DcfValuationView } from '@/components/DcfValuationView';
 import { RiskIntelligenceView } from '@/components/RiskIntelligenceView';
 import { ResearchReportsView } from '@/components/ResearchReportsView';
+import { CompanyCompareView } from '@/components/CompanyCompareView';
 import { CsvImportModal } from '@/components/CsvImportModal';
 import { API_BASE, API_BASE_URL } from '@/lib/api';
 
@@ -149,8 +150,10 @@ function MainDashboardContent() {
       <Sidebar
         activeSection={activeSection}
         onSelectSection={handleSelectSection}
+        currentTicker={currentTicker}
         isOpenOnMobile={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
+        onSelectTicker={handleSelectTicker}
       />
 
       {/* Main Content Area */}
@@ -168,7 +171,7 @@ function MainDashboardContent() {
         <div className="bg-navy-900/60 border-b border-navy-800 px-4 sm:px-6 py-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs text-slate-300">
           <div className="flex items-center gap-2">
             <span className="h-2 w-2 rounded-full bg-emerald-400 animate-pulse flex-shrink-0"></span>
-            <span className="font-semibold text-emerald-400 tracking-wide">[PHASE 4 ACTIVE]</span>
+            <span className="font-semibold text-emerald-400 tracking-wide">[INSTITUTIONAL SUITE ACTIVE]</span>
             <span className="text-slate-400 hidden lg:inline">
               — Universal equity search, deterministic financial analysis, and pgvector RAG intelligence.
             </span>
@@ -207,6 +210,13 @@ function MainDashboardContent() {
             <CompanyDashboardView
               symbolOrId={currentTicker}
               onRefresh={() => setCurrentTicker((t) => t)}
+              onSelectTicker={handleSelectTicker}
+            />
+          ) : activeSection === 'compare' ? (
+            /* Side-by-Side Equities Comparison */
+            <CompanyCompareView
+              initialA={currentTicker}
+              initialB="BERGEPAINT.NS"
               onSelectTicker={handleSelectTicker}
             />
           ) : activeSection === 'financial-statements' ? (

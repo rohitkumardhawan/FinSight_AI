@@ -10,6 +10,7 @@ import { FinancialRatiosView } from '@/components/FinancialRatiosView';
 import { DcfValuationView } from '@/components/DcfValuationView';
 import { RiskIntelligenceView } from '@/components/RiskIntelligenceView';
 import { ResearchReportsView } from '@/components/ResearchReportsView';
+import { CompanyCompareView } from '@/components/CompanyCompareView';
 import { ModulePlaceholder } from '@/components/ModulePlaceholder';
 import { CsvImportModal } from '@/components/CsvImportModal';
 
@@ -61,8 +62,10 @@ function CompanyDetailContent() {
       <Sidebar
         activeSection={activeSection}
         onSelectSection={handleSelectSection}
+        currentTicker={symbol}
         isOpenOnMobile={isMobileMenuOpen}
         onCloseMobile={() => setIsMobileMenuOpen(false)}
+        onSelectTicker={handleSelectTicker}
       />
 
       <div className="flex-1 flex flex-col min-w-0 overflow-hidden">
@@ -80,6 +83,12 @@ function CompanyDetailContent() {
           {activeSection === 'overview' || activeSection === 'company-analysis' || activeSection === 'ai-research' ? (
             <CompanyDashboardView
               symbolOrId={symbol}
+              onSelectTicker={handleSelectTicker}
+            />
+          ) : activeSection === 'compare' ? (
+            <CompanyCompareView
+              initialA={symbol}
+              initialB="BERGEPAINT.NS"
               onSelectTicker={handleSelectTicker}
             />
           ) : activeSection === 'financial-statements' ? (

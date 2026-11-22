@@ -24,6 +24,7 @@ from app.services.dcf_engine import calculate_dcf, DCFRequest, DCFResponse
 from app.services.risk_engine import calculate_risk_intelligence, RiskIntelligenceResponse
 from app.services.report_generator import generate_pdf_report, get_report_preview_data
 from app.services.peer_engine import get_sector_peers
+from app.services.news_engine import get_company_news
 
 logger = logging.getLogger(__name__)
 
@@ -123,7 +124,6 @@ def get_or_fetch_company_analysis(
                 has_quarterly = any(p.get("statement_type") == "quarterly" for p in periods_list)
                 if not has_quarterly:
                     try:
-                        from app.services.auto_fetcher import fetch_company_data
                         parsed_live = fetch_company_data(symbol_clean)
                         for p in parsed_live.periods:
                             if p.statement_type == "quarterly":
@@ -315,6 +315,29 @@ def get_company_sector_peers(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail=f"Failed to calculate sector peers: {str(e)}"
         )
+
+
+@router.get("/{symbol}/news")
+def get_company_market_news(
+    symbol: str,
+    limit: int = Query(6, ge=1, le=15, description="Number of news headlines to retrieve")
+):
+    """
+    Live Company Market News Feed:
+    Retrieves the latest verified financial headlines and articles for an equity
+    from Yahoo Finance, cached for 30 minutes in memory.
+    """
+    try:
+        return get_company_news(symbol, limit=limit)
+    except Exception as e:
+        logger.error(f"Failed to fetch market news for {symbol}: {e}", exc_info=True)
+        return {
+            "symbol": symbol.strip().upper(),
+            "news": [],
+            "count": 0,
+            "is_cached": False,
+            "error": str(e)
+        }
 
 
 @router.post("/{company_id}/ask", response_model=AskQuestionResponse)

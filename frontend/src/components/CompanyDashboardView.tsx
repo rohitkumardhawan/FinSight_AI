@@ -21,7 +21,10 @@ import {
   ShieldCheck,
   HelpCircle,
   FileSpreadsheet,
-  Users
+  Users,
+  Star,
+  Newspaper,
+  Clock
 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 import {
@@ -70,6 +73,13 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
   // Sector Peer Comparison State (Feature 1)
   const [peerData, setPeerData] = useState<any>(null);
   const [loadingPeers, setLoadingPeers] = useState<boolean>(false);
+
+  // Live Market News State (Analyst News Feed)
+  const [newsItems, setNewsItems] = useState<any[]>([]);
+  const [loadingNews, setLoadingNews] = useState<boolean>(false);
+
+  // Watchlist Star State
+  const [isWatchlisted, setIsWatchlisted] = useState<boolean>(false);
 
   // Cold-start notification timer for Render free-tier wake up (>5s)
   useEffect(() => {
@@ -173,6 +183,79 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
     };
     if (symbolOrId) {
       fetchPeers();
+    }
+    return () => {
+      isCancelled = true;
+    };
+  }, [symbolOrId]);
+
+  // Sync Watchlist state with localStorage & custom event
+  useEffect(() => {
+    const checkWatchlist = () => {
+      try {
+        const raw = localStorage.getItem('finsight_watchlist');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) {
+            const syms = parsed.map((x: any) => (typeof x === 'string' ? x : x.symbol));
+            const currentSym = (data?.symbol || symbolOrId || '').toUpperCase();
+            setIsWatchlisted(syms.some((s: string) => s.toUpperCase() === currentSym));
+          }
+        }
+      } catch {}
+    };
+
+    checkWatchlist();
+    window.addEventListener('watchlistUpdated', checkWatchlist);
+    window.addEventListener('storage', checkWatchlist);
+    return () => {
+      window.removeEventListener('watchlistUpdated', checkWatchlist);
+      window.removeEventListener('storage', checkWatchlist);
+    };
+  }, [data?.symbol, symbolOrId]);
+
+  const toggleWatchlist = () => {
+    try {
+      const raw = localStorage.getItem('finsight_watchlist');
+      let list: string[] = raw ? JSON.parse(raw) : ['ASIANPAINT.NS', 'RELIANCE.NS', 'TCS.NS'];
+      list = list.map((x: any) => (typeof x === 'string' ? x : x.symbol));
+      const targetSym = (data?.symbol || symbolOrId).trim().toUpperCase();
+      if (list.some((s) => s.toUpperCase() === targetSym)) {
+        list = list.filter((s) => s.toUpperCase() !== targetSym);
+        setIsWatchlisted(false);
+      } else {
+        list.push(targetSym);
+        setIsWatchlisted(true);
+      }
+      localStorage.setItem('finsight_watchlist', JSON.stringify(list));
+      window.dispatchEvent(new Event('watchlistUpdated'));
+    } catch (err) {
+      console.error('Failed to toggle watchlist:', err);
+    }
+  };
+
+  // Fetch Live Company Market News (30-min cache)
+  useEffect(() => {
+    let isCancelled = false;
+    const fetchNews = async () => {
+      setLoadingNews(true);
+      try {
+        const res = await fetch(`${API_BASE}/companies/${encodeURIComponent(symbolOrId)}/news?limit=6`);
+        if (res.ok) {
+          const json = await res.json();
+          if (!isCancelled && Array.isArray(json.news)) {
+            setNewsItems(json.news);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not fetch market news:', err);
+      } finally {
+        if (!isCancelled) setLoadingNews(false);
+      }
+    };
+
+    if (symbolOrId) {
+      fetchNews();
     }
     return () => {
       isCancelled = true;
@@ -370,6 +453,18 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
               <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
                 {company_name}
               </h1>
+              <button
+                type="button"
+                onClick={toggleWatchlist}
+                className={`p-1.5 rounded-lg border transition-all ${
+                  isWatchlisted
+                    ? 'bg-gold-500/15 border-gold-500/40 text-gold-400 shadow-sm shadow-gold-500/20'
+                    : 'bg-navy-950/80 border-navy-700 text-slate-400 hover:text-gold-300 hover:border-gold-500/30'
+                }`}
+                title={isWatchlisted ? 'Remove from Watchlist' : 'Add to Personal Watchlist'}
+              >
+                <Star className={`h-4 w-4 ${isWatchlisted ? 'fill-gold-400 text-gold-400' : 'text-slate-400'}`} />
+              </button>
               <span className="px-2 py-0.5 text-xs font-mono font-bold bg-navy-950 text-gold-400 border border-navy-700 rounded">
                 {symbol || 'EQUITY'}
               </span>
@@ -728,6 +823,85 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                 )}
               </tbody>
             </table>
+          </div>
+        )}
+      </div>
+
+      {/* 3c. LIVE COMPANY MARKET NEWS FEED */}
+      <div className="bg-navy-900/90 border border-navy-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-navy-800 pb-3">
+          <div className="flex items-center gap-2">
+            <span className="h-5 px-2 rounded bg-gold-500/10 text-gold-400 border border-gold-500/30 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+              <Newspaper className="h-3 w-3" />
+              Live News Feed
+            </span>
+            <h2 className="text-base font-bold text-white flex items-center gap-2">
+              <span>Latest Market News & Intelligence</span>
+              {loadingNews && <RefreshCw className="h-3.5 w-3.5 animate-spin text-gold-400" />}
+            </h2>
+          </div>
+
+          <div className="flex items-center gap-2 text-[11px] text-slate-400">
+            <span className="text-emerald-400 font-mono text-[10px] flex items-center gap-1">
+              <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              30-MIN CACHED FEED
+            </span>
+            <span>•</span>
+            <span className="font-mono text-slate-400">{symbol}</span>
+          </div>
+        </div>
+
+        {loadingNews && newsItems.length === 0 ? (
+          <div className="py-8 flex flex-col items-center justify-center text-center text-xs text-slate-400">
+            <RefreshCw className="h-5 w-5 animate-spin text-gold-400 mb-2" />
+            <span>Scanning real-time institutional financial news wire...</span>
+          </div>
+        ) : newsItems.length === 0 ? (
+          <div className="py-6 text-center text-xs text-slate-400">
+            No recent news stories found for {symbol}. Check back during active market hours.
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
+            {newsItems.map((item) => (
+              <a
+                key={item.id}
+                href={item.link}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="bg-navy-950/70 hover:bg-navy-850/80 border border-navy-800 hover:border-gold-500/40 rounded-xl p-4 flex flex-col justify-between transition-all group shadow-sm hover:shadow-md"
+              >
+                <div>
+                  <div className="flex items-center justify-between gap-2 mb-2">
+                    <span className="text-[10px] font-bold uppercase tracking-wider px-2 py-0.5 rounded bg-navy-900 border border-navy-750 text-gold-400 truncate max-w-[140px]">
+                      {item.publisher}
+                    </span>
+                    <span className="text-[10px] text-slate-500 font-mono flex items-center gap-1 flex-shrink-0">
+                      <Clock className="h-2.5 w-2.5" />
+                      {new Date(item.published_at).toLocaleDateString(undefined, {
+                        month: 'short',
+                        day: 'numeric',
+                        year: 'numeric',
+                      })}
+                    </span>
+                  </div>
+
+                  <h3 className="text-xs font-semibold text-slate-200 group-hover:text-gold-300 leading-snug transition-colors line-clamp-2">
+                    {item.title}
+                  </h3>
+
+                  {item.summary && (
+                    <p className="text-[11px] text-slate-400 mt-1.5 line-clamp-2 leading-relaxed">
+                      {item.summary}
+                    </p>
+                  )}
+                </div>
+
+                <div className="mt-3 pt-2 border-t border-navy-800/60 flex items-center justify-between text-[10px] text-slate-400 group-hover:text-gold-400">
+                  <span className="font-medium">Read Full Article</span>
+                  <ExternalLink className="h-3 w-3 text-slate-500 group-hover:text-gold-400 transition-colors" />
+                </div>
+              </a>
+            ))}
           </div>
         )}
       </div>

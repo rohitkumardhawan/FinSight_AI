@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { useRouter } from 'next/navigation';
-import { Search, AlertCircle, Menu, X, Loader2, Upload, Database, Globe } from 'lucide-react';
+import { Search, AlertCircle, Menu, X, Loader2, Upload, Database, Globe, Scale } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 import { normalizeExchange, formatPerShare } from '@/lib/formatters';
 
@@ -296,6 +296,18 @@ export const Header: React.FC<HeaderProps> = ({
             </>
           )}
         </div>
+
+        {/* Compare Equities Button */}
+        <button
+          onClick={() => {
+            router.push(`/compare?a=${encodeURIComponent(currentTicker)}&b=BERGEPAINT.NS`);
+          }}
+          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-navy-800 hover:bg-navy-750 text-slate-200 border border-navy-700 hover:border-gold-500/40 text-xs font-medium transition-all shadow-sm"
+          title="Side-by-side equity comparison"
+        >
+          <Scale className="h-3.5 w-3.5 text-gold-400" />
+          <span>Compare</span>
+        </button>
 
         {/* Optional Import CSV Button */}
         {onOpenImportCsv && (
