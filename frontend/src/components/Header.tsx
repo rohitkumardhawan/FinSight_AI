@@ -19,6 +19,21 @@ export interface CompanySearchResult {
   change_percent?: number | null;
 }
 
+export interface MarketIndexQuote {
+  symbol: string;
+  name: string;
+  price: number;
+  change: number;
+  change_pct: number;
+  currency: string;
+}
+
+const DEFAULT_INDICES: MarketIndexQuote[] = [
+  { symbol: '^NSEI', name: 'NIFTY 50', price: 24180.80, change: 132.50, change_pct: 0.55, currency: 'INR' },
+  { symbol: '^GSPC', name: 'S&P 500', price: 5983.25, change: 25.10, change_pct: 0.42, currency: 'USD' },
+  { symbol: '^IXIC', name: 'NASDAQ', price: 19081.40, change: 128.90, change_pct: 0.68, currency: 'USD' },
+];
+
 interface HeaderProps {
   currentTicker: string;
   onSelectTicker: (ticker: string) => void;
@@ -40,7 +55,33 @@ export const Header: React.FC<HeaderProps> = ({
   const [results, setResults] = useState<CompanySearchResult[]>([]);
   const [recentCompanies, setRecentCompanies] = useState<CompanySearchResult[]>([]);
   const [isSearching, setIsSearching] = useState(false);
+  const [marketIndices, setMarketIndices] = useState<MarketIndexQuote[]>(DEFAULT_INDICES);
   const searchContainerRef = useRef<HTMLDivElement>(null);
+
+  // 0. Live Market Indices Polling (NIFTY 50, S&P 500, NASDAQ)
+  useEffect(() => {
+    let isMounted = true;
+    const fetchIndices = async () => {
+      try {
+        const res = await fetch(`${API_BASE}/market/indices`);
+        if (res.ok) {
+          const json = await res.json();
+          if (isMounted && Array.isArray(json.indices) && json.indices.length > 0) {
+            setMarketIndices(json.indices);
+          }
+        }
+      } catch (err) {
+        // Graceful silent fallback to default benchmarks
+      }
+    };
+
+    fetchIndices();
+    const interval = setInterval(fetchIndices, 60000); // 1-minute live poll
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, []);
 
   // 1. Fetch featured top NSE companies when search box opens with empty query
   const loadRecentCompanies = async () => {
@@ -135,7 +176,7 @@ export const Header: React.FC<HeaderProps> = ({
           <button
             onClick={onToggleMobileMenu}
             aria-label="Toggle Navigation Menu"
-            className="md:hidden p-1.5 rounded-lg bg-navy-800 text-slate-300 hover:text-white border border-navy-700"
+            className="lg:hidden p-1.5 rounded-lg bg-navy-800 text-slate-300 hover:text-white border border-navy-700"
           >
             {isMobileMenuOpen ? <X className="h-5 w-5" /> : <Menu className="h-5 w-5" />}
           </button>
@@ -271,18 +312,18 @@ export const Header: React.FC<HeaderProps> = ({
 
       {/* Center Market Pulse (Hidden on mobile/tablet) */}
       <div className="hidden xl:flex items-center gap-6 text-xs text-slate-400">
-        <div className="flex items-center gap-2">
-          <span className="text-slate-400 font-medium">NIFTY 50</span>
-          <span className="text-emerald-400 font-semibold">24,180.80 (+0.55%)</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-slate-400 font-medium">S&P 500</span>
-          <span className="text-emerald-400 font-semibold">5,983.25 (+0.42%)</span>
-        </div>
-        <div className="flex items-center gap-2">
-          <span className="text-slate-400 font-medium">NASDAQ</span>
-          <span className="text-emerald-400 font-semibold">19,081.40 (+0.68%)</span>
-        </div>
+        {marketIndices.map((idx) => {
+          const isPos = idx.change_pct >= 0;
+          return (
+            <div key={idx.symbol} className="flex items-center gap-2">
+              <span className="text-slate-400 font-medium">{idx.name}</span>
+              <span className={`font-semibold font-mono ${isPos ? 'text-emerald-400' : 'text-rose-400'}`}>
+                {idx.price.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}{' '}
+                ({isPos ? '+' : ''}{idx.change_pct.toFixed(2)}%)
+              </span>
+            </div>
+          );
+        })}
       </div>
 
       {/* Right Actions & Status Badges */}
@@ -300,7 +341,7 @@ export const Header: React.FC<HeaderProps> = ({
           </div>
           <div className="hidden sm:block text-left">
             <div className="text-xs font-semibold text-white leading-tight">Analyst Desk</div>
-            <div className="text-[10px] text-slate-400">Phase 4 Active</div>
+            <div className="text-[10px] text-slate-400">Phase 4 · Institutional Ready</div>
           </div>
         </div>
       </div>

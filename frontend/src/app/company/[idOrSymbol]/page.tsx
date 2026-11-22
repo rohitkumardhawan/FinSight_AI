@@ -31,6 +31,9 @@ function CompanyDetailContent() {
       try {
         localStorage.setItem('finsight_last_company', symbol);
       } catch {}
+      if (typeof document !== 'undefined') {
+        document.title = `${symbol} | FinSight AI`;
+      }
     }
   }, [symbol]);
 

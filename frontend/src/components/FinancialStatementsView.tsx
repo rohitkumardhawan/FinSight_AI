@@ -10,7 +10,8 @@ import {
   TrendingDown, 
   Database,
   Calendar,
-  Info
+  Info,
+  HelpCircle
 } from 'lucide-react';
 import { CsvImportModal } from './CsvImportModal';
 import { API_BASE } from '@/lib/api';
@@ -302,7 +303,24 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
       </div>
 
       {/* Financial Statement Tables Container */}
-      <div className="bg-navy-900 border border-navy-800 rounded-2xl overflow-hidden shadow-xl">
+      {!loading && periods.length === 0 ? (
+        <div className="flex flex-col items-center justify-center min-h-[350px] text-center p-8 bg-navy-900/50 rounded-2xl border border-navy-800 shadow-lg">
+          <div className="h-12 w-12 rounded-full bg-navy-800 text-gold-400 flex items-center justify-center mb-3">
+            <HelpCircle className="h-6 w-6" />
+          </div>
+          <h3 className="text-base font-semibold text-white">Financial Statements Standby</h3>
+          <p className="text-xs text-slate-300 max-w-md mt-1 leading-relaxed">
+            Multi-year financial statements for {ticker} are currently synchronizing or awaiting live fetch.
+          </p>
+          <button
+            onClick={() => loadData(true)}
+            className="mt-4 px-4 py-2 rounded-lg bg-navy-800 hover:bg-navy-750 text-xs font-medium text-gold-400 border border-gold-500/30 flex items-center gap-1.5 transition-all shadow-md"
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> Re-sync Statements
+          </button>
+        </div>
+      ) : (
+        <div className="bg-navy-900 border border-navy-800 rounded-2xl overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead className="bg-navy-950 text-slate-400 text-[11px] uppercase tracking-wider border-b border-navy-800">
@@ -407,6 +425,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
           </div>
         </div>
       </div>
+      )}
 
       {/* CSV Import Modal */}
       <CsvImportModal

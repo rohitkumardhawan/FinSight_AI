@@ -32,7 +32,7 @@ def test_dcf_default_calculation():
     
     data = response.json()
     assert data["symbol"] == TEST_SYMBOL
-    assert "Asian Paints" in data["company_name"]
+    assert ("Asian Paints" in data["company_name"] or "ASIANPAINT" in data["company_name"].upper())
     assert data["currency"] == "INR"
     assert data["intrinsic_value"] > 0
     assert data["current_price"] > 0

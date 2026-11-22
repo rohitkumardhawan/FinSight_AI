@@ -214,8 +214,8 @@ export const ModulePlaceholder: React.FC<ModulePlaceholderProps> = ({
                 <span className="text-gold-400 font-medium">Google Gemini API</span>
               </div>
               <div className="flex justify-between text-xs">
-                <span className="text-slate-400">Safety Rule:</span>
-                <span className="text-emerald-400 font-medium">Zero Paid Credits in Phase 1</span>
+                <span className="text-slate-400">Environment:</span>
+                <span className="text-emerald-400 font-medium">Production Hardened</span>
               </div>
             </div>
           </div>
@@ -225,7 +225,7 @@ export const ModulePlaceholder: React.FC<ModulePlaceholderProps> = ({
               onClick={onBackToOverview}
               className="px-4 py-2 rounded-lg bg-navy-800 hover:bg-navy-750 text-gold-400 text-xs font-semibold border border-gold-500/20 transition-colors w-full"
             >
-              Explore Active Phase 1 Dashboard
+              Explore Active Institutional Cockpit
             </button>
           </div>
         </div>

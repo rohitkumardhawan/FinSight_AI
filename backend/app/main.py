@@ -15,7 +15,8 @@ from app.api.endpoints import (
     companies as api_companies,
     statements as api_statements,
     datasets as api_datasets,
-    admin as api_admin
+    admin as api_admin,
+    market as api_market
 )
 
 logger = logging.getLogger("finsight.main")
@@ -89,6 +90,7 @@ def create_app() -> FastAPI:
 
     # 6. Mount API Routers
     application.include_router(api_health.router, prefix="/api")
+    application.include_router(api_market.router, prefix="/api")
     application.include_router(api_companies.router, prefix="/api")
     application.include_router(api_statements.router, prefix="/api")
     application.include_router(api_datasets.router, prefix="/api")

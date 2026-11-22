@@ -98,12 +98,27 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
       const json = await res.json();
       setData(json);
 
+      if (typeof document !== 'undefined' && json.company_name && json.symbol) {
+        document.title = `${json.company_name} (${json.symbol}) | FinSight AI`;
+      }
+
       // Seed initial research message
       if (chatHistory.length === 0 && json.auto_insights?.summary_narrative) {
+        let narrative = json.auto_insights.summary_narrative;
+        if (json.currency === 'INR') {
+          narrative = narrative.replace(/\$([0-9,.]+)\s*M/g, (match: string, p1: string) => {
+            const rawVal = parseFloat(p1.replace(/,/g, ''));
+            return !isNaN(rawVal) ? formatFinancialValue(rawVal, 'INR') : match;
+          });
+          narrative = narrative.replace(/\$([0-9,.]+)/g, (match: string, p1: string) => {
+            const rawVal = parseFloat(p1.replace(/,/g, ''));
+            return !isNaN(rawVal) ? formatPerShare(rawVal, 'INR') : match;
+          });
+        }
         setChatHistory([
           {
             role: 'assistant',
-            content: json.auto_insights.summary_narrative,
+            content: narrative,
             citations: [
               {
                 source_ref: `${json.company_name} | Profile Overview`,
@@ -190,18 +205,35 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
   }
 
   if (error || !data) {
+    const isColdStart = error && (
+      error.toLowerCase().includes('failed to fetch') ||
+      error.toLowerCase().includes('network') ||
+      error.toLowerCase().includes('504') ||
+      error.toLowerCase().includes('502') ||
+      error.toLowerCase().includes('load failed') ||
+      error.toLowerCase().includes('timed out')
+    );
+
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-8 bg-navy-900/50 rounded-2xl border border-red-500/20">
-        <div className="h-12 w-12 rounded-full bg-red-500/10 text-red-400 flex items-center justify-center mb-3">
-          <HelpCircle className="h-6 w-6" />
+      <div className="flex flex-col items-center justify-center min-h-[400px] text-center p-8 bg-navy-900/60 rounded-2xl border border-navy-800 shadow-xl">
+        <div className={`h-12 w-12 rounded-full ${isColdStart ? 'bg-amber-500/10 text-amber-400' : 'bg-red-500/10 text-red-400'} flex items-center justify-center mb-3`}>
+          {isColdStart ? <RefreshCw className={`h-6 w-6 ${refreshing ? 'animate-spin' : ''}`} /> : <HelpCircle className="h-6 w-6" />}
         </div>
-        <h3 className="text-base font-semibold text-white">Analysis Unavailable</h3>
-        <p className="text-xs text-red-300 max-w-md mt-1">{error || 'No financial records found for this company.'}</p>
+        <h3 className="text-base font-semibold text-white">
+          {isColdStart ? 'Waking Up Market Engine...' : 'Analysis Unavailable'}
+        </h3>
+        <p className="text-xs text-slate-300 max-w-md mt-1 leading-relaxed">
+          {isColdStart
+            ? 'The live market backend on Render spins down during idle periods and takes ~20–30s to initialize. Click below or wait to reconnect.'
+            : (error || 'No financial records found for this company.')}
+        </p>
         <button
           onClick={() => fetchAnalysis(true)}
-          className="mt-4 px-4 py-2 rounded-lg bg-navy-800 hover:bg-navy-700 text-xs font-medium text-slate-200 border border-navy-700 flex items-center gap-1.5 transition-all"
+          disabled={refreshing}
+          className="mt-4 px-4 py-2 rounded-lg bg-navy-800 hover:bg-navy-750 text-xs font-medium text-gold-400 border border-gold-500/30 flex items-center gap-1.5 transition-all shadow-md"
         >
-          <RefreshCw className="h-3.5 w-3.5" /> Retry Fetch
+          <RefreshCw className={`h-3.5 w-3.5 ${refreshing ? 'animate-spin' : ''}`} />
+          <span>{refreshing ? 'Connecting...' : 'Reconnect Live Server'}</span>
         </button>
       </div>
     );
@@ -302,27 +334,41 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
       {/* 2. INSTITUTIONAL KPI SUMMARY STRIP */}
       {kpis.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-6 gap-3">
-          {kpis.map((kpi: any, i: number) => (
-            <div
-              key={i}
-              className="bg-navy-900/90 border border-navy-800 rounded-xl p-3.5 flex flex-col justify-between hover:border-navy-700 transition-all shadow-md"
-            >
-              <div className="text-[11px] font-medium text-slate-400 truncate">{kpi.label}</div>
-              <div className="text-base sm:text-lg font-bold font-mono text-white mt-1">
-                {kpi.value || 'N/A'}
-              </div>
-              {kpi.change && (
-                <div
-                  className={`text-[10px] font-semibold flex items-center gap-0.5 mt-1 ${
-                    kpi.is_positive ? 'text-emerald-400' : 'text-amber-400'
-                  }`}
-                >
-                  {kpi.is_positive ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
-                  <span>{kpi.change}</span>
+          {kpis.map((kpi: any, i: number) => {
+            let displayVal = kpi.value || 'N/A';
+            if (currency === 'INR') {
+              if (kpi.raw_value !== undefined && kpi.raw_value !== null && !kpi.label.includes('P/E') && !kpi.label.includes('ROE')) {
+                displayVal = formatFinancialValue(kpi.raw_value, 'INR');
+              } else if (typeof displayVal === 'string' && displayVal.startsWith('$') && displayVal.endsWith('M')) {
+                const numericStr = displayVal.replace('$', '').replace('M', '').replace(/,/g, '');
+                const num = parseFloat(numericStr);
+                if (!isNaN(num)) {
+                  displayVal = formatFinancialValue(num, 'INR');
+                }
+              }
+            }
+            return (
+              <div
+                key={i}
+                className="bg-navy-900/90 border border-navy-800 rounded-xl p-3.5 flex flex-col justify-between hover:border-navy-700 transition-all shadow-md"
+              >
+                <div className="text-[11px] font-medium text-slate-400 truncate">{kpi.label}</div>
+                <div className="text-base sm:text-lg font-bold font-mono text-white mt-1">
+                  {displayVal}
                 </div>
-              )}
-            </div>
-          ))}
+                {kpi.change && (
+                  <div
+                    className={`text-[10px] font-semibold flex items-center gap-0.5 mt-1 ${
+                      kpi.is_positive ? 'text-emerald-400' : 'text-amber-400'
+                    }`}
+                  >
+                    {kpi.is_positive ? <TrendingUp className="h-2.5 w-2.5" /> : <TrendingDown className="h-2.5 w-2.5" />}
+                    <span>{kpi.change}</span>
+                  </div>
+                )}
+              </div>
+            );
+          })}
         </div>
       )}
 

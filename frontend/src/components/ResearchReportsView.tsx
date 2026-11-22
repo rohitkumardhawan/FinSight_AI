@@ -164,16 +164,21 @@ export const ResearchReportsView: React.FC<ResearchReportsViewProps> = ({
   }
 
   if (error || !report) {
+    const isCold = error && (error.toLowerCase().includes('failed to fetch') || error.toLowerCase().includes('network'));
     return (
-      <div className="bg-navy-900 border border-navy-800 rounded-xl p-8 text-center space-y-4">
-        <div className="h-12 w-12 rounded-full bg-rose-500/10 border border-rose-500/30 flex items-center justify-center mx-auto text-rose-400">
-          <AlertTriangle className="h-6 w-6" />
+      <div className="bg-navy-900 border border-navy-800 rounded-xl p-8 text-center space-y-4 shadow-lg">
+        <div className={`h-12 w-12 rounded-full ${isCold ? 'bg-amber-500/10 border-amber-500/30 text-amber-400' : 'bg-rose-500/10 border-rose-500/30 text-rose-400'} flex items-center justify-center mx-auto`}>
+          {isCold ? <RefreshCw className="h-6 w-6 animate-spin" /> : <AlertTriangle className="h-6 w-6" />}
         </div>
-        <h3 className="text-lg font-bold text-white">Unable to Load Research Report</h3>
-        <p className="text-sm text-slate-400 max-w-md mx-auto">{error || 'No report data available for this symbol.'}</p>
+        <h3 className="text-lg font-bold text-white">
+          {isCold ? 'Connecting to Report Engine...' : 'Unable to Load Research Report'}
+        </h3>
+        <p className="text-sm text-slate-300 max-w-md mx-auto leading-relaxed">
+          {isCold ? 'The live market backend on Render may be waking up from standby. Click retry to connect.' : (error || 'No report data available for this symbol.')}
+        </p>
         <button
           onClick={fetchReportPreview}
-          className="inline-flex items-center gap-2 px-4 py-2 bg-navy-800 hover:bg-navy-750 text-slate-200 border border-navy-700 rounded-lg text-sm transition-colors"
+          className="inline-flex items-center gap-2 px-4 py-2 bg-navy-800 hover:bg-navy-750 text-gold-400 border border-gold-500/30 rounded-lg text-sm transition-colors shadow-md"
         >
           <RefreshCw className="h-4 w-4" />
           Retry Report Preview

@@ -147,6 +147,31 @@ def get_or_fetch_company_analysis(
                     except Exception as q_err:
                         logger.debug(f"Fast quote refresh error: {q_err}")
 
+                cached_insights = company.metadata_json.get("auto_insights", {})
+                if (company.currency or "").upper() == "INR" and cached_insights:
+                    kpis = cached_insights.get("kpis") or cached_insights.get("kpi_cards") or []
+                    if any(isinstance(k.get("value"), str) and k.get("value", "").startswith("$") for k in kpis):
+                        try:
+                            from app.schemas.dataset import ParsedCompanyDataset, FinancialPeriodRecord
+                            from app.services.insights_engine import generate_auto_insights
+                            p_records = [FinancialPeriodRecord(**pj) for pj in periods_list]
+                            ds_temp = ParsedCompanyDataset(
+                                company_name=company.company_name,
+                                filename=f"{symbol_clean} (Cached)",
+                                detected_format="yfinance",
+                                periods=p_records,
+                                raw_metadata={"currency": company.currency, "symbol": symbol_clean}
+                            )
+                            fresh_insights = generate_auto_insights(ds_temp)
+                            if fresh_insights:
+                                cached_insights = fresh_insights
+                                meta = dict(company.metadata_json)
+                                meta["auto_insights"] = fresh_insights
+                                company.metadata_json = meta
+                                db.commit()
+                        except Exception as rec_err:
+                            logger.debug(f"Failed to refresh cached auto_insights formatting: {rec_err}")
+
                 norm_exch = "NSE" if (symbol_clean.endswith(".NS") or (company.exchange or "").upper() == "NSI") else (company.exchange or "GLOBAL")
 
                 return {
@@ -162,7 +187,7 @@ def get_or_fetch_company_analysis(
                     "periods": periods_list,
                     "trends": company.metadata_json.get("trends", {}),
                     "scenarios": company.metadata_json.get("scenarios", {}),
-                    "auto_insights": company.metadata_json.get("auto_insights", {})
+                    "auto_insights": cached_insights
                 }
 
     # 3. Auto-fetch live financials

@@ -22,6 +22,33 @@ def calculate_cagr(start_val: Optional[float], end_val: Optional[float], years: 
         return None
 
 
+def format_currency_value(value: Optional[float], currency: str = "USD") -> str:
+    """Formats financial numbers strictly by currency (₹ Cr for INR, $B/$M for USD)."""
+    if value is None:
+        return "N/A"
+    cur = (currency or "").upper()
+    if cur in ("INR", "₹"):
+        in_cr = value / 1e7
+        return f"₹{in_cr:,.2f} Cr"
+    sym = "$" if cur in ("USD", "$", "") else f"{cur} "
+    abs_val = abs(value)
+    if abs_val >= 1e9:
+        return f"{sym}{value / 1e9:,.2f}B"
+    elif abs_val >= 1e6:
+        return f"{sym}{value / 1e6:,.2f}M"
+    else:
+        return f"{sym}{value:,.2f}"
+
+
+def format_per_share(value: Optional[float], currency: str = "USD") -> str:
+    """Formats per-share price or EPS with currency symbol."""
+    if value is None:
+        return "N/A"
+    cur = (currency or "").upper()
+    sym = "₹" if cur in ("INR", "₹") else "$"
+    return f"{sym}{value:,.2f}"
+
+
 def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
     """
     Generates a structured analytical payload from parsed financial records:
@@ -222,9 +249,29 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
     latest_period = annual_periods[-1] if annual_periods else None
     kpi_cards = []
 
+    # Currency determination
+    currency = (dataset.raw_metadata or {}).get("currency")
+    if not currency:
+        comp_name = (dataset.company_name or "").upper()
+        file_name = (dataset.filename or "").upper()
+        if (
+            comp_name.endswith(".NS")
+            or comp_name.endswith(".BO")
+            or file_name.endswith(".NS")
+            or file_name.endswith(".BO")
+            or "PAINTS" in comp_name
+            or "RELIANCE" in comp_name
+            or "TCS" in comp_name
+            or "INFOSYS" in comp_name
+            or "HDFC" in comp_name
+        ):
+            currency = "INR"
+        else:
+            currency = "USD"
+
     if latest_period:
         # KPI 1: Revenue
-        rev_val = f"${latest_period.revenue:,.0f}M" if latest_period.revenue is not None else "N/A"
+        rev_val = format_currency_value(latest_period.revenue, currency)
         growth_str = ""
         is_pos = True
         if len(time_series_data) >= 2 and time_series_data[-1].get("rev_growth_pct") is not None:
@@ -235,28 +282,31 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
         kpi_cards.append({
             "label": "Annual Revenue",
             "value": rev_val,
+            "raw_value": latest_period.revenue,
             "change": growth_str,
             "is_positive": is_pos,
             "subtext": f"Latest Period ({time_series_data[-1]['period'] if time_series_data else 'Latest'})"
         })
 
         # KPI 2: Operating Profit & OPM
-        op_val = f"${latest_period.operating_income:,.0f}M" if latest_period.operating_income is not None else "N/A"
+        op_val = format_currency_value(latest_period.operating_income, currency)
         opm_val = time_series_data[-1].get("opm_pct")
         kpi_cards.append({
             "label": "Operating Profit (EBIT)",
             "value": op_val,
+            "raw_value": latest_period.operating_income,
             "change": f"{opm_val}% OPM" if opm_val is not None else None,
             "is_positive": True,
             "subtext": "Core Operational Earning Power"
         })
 
         # KPI 3: Net Profit
-        net_val = f"${latest_period.net_income:,.0f}M" if latest_period.net_income is not None else "N/A"
+        net_val = format_currency_value(latest_period.net_income, currency)
         net_m = time_series_data[-1].get("net_margin_pct")
         kpi_cards.append({
             "label": "Net Profit",
             "value": net_val,
+            "raw_value": latest_period.net_income,
             "change": f"{net_m}% Margin" if net_m is not None else None,
             "is_positive": (latest_period.net_income or 0) >= 0,
             "subtext": "Bottom-Line GAAP Earnings"
@@ -264,17 +314,20 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
 
         # KPI 4: Valuation or Capital Return (P/E or ROE / FCF)
         if latest_period.pe_ratio is not None:
+            eps_str = f"EPS: {format_per_share(latest_period.eps, currency)}" if latest_period.eps is not None else None
             kpi_cards.append({
                 "label": "Price-to-Earnings (P/E)",
                 "value": f"{latest_period.pe_ratio:.1f}x",
-                "change": f"EPS: ${latest_period.eps:.2f}" if latest_period.eps else None,
+                "raw_value": latest_period.pe_ratio,
+                "change": eps_str,
                 "is_positive": True,
                 "subtext": "Institutional Valuation Multiple"
             })
         elif latest_period.free_cash_flow is not None:
             kpi_cards.append({
                 "label": "Free Cash Flow (FCF)",
-                "value": f"${latest_period.free_cash_flow:,.0f}M",
+                "value": format_currency_value(latest_period.free_cash_flow, currency),
+                "raw_value": latest_period.free_cash_flow,
                 "change": f"{time_series_data[-1].get('fcf_margin_pct')}% FCF Margin" if time_series_data else None,
                 "is_positive": latest_period.free_cash_flow >= 0,
                 "subtext": "Operating Cash Flow - CapEx"
@@ -283,7 +336,8 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
             kpi_cards.append({
                 "label": "Return on Equity (ROE)",
                 "value": f"{time_series_data[-1]['roe_pct']:.1f}%",
-                "change": f"Equity: ${latest_period.total_equity:,.0f}M",
+                "raw_value": time_series_data[-1]['roe_pct'],
+                "change": f"Equity: {format_currency_value(latest_period.total_equity, currency)}",
                 "is_positive": True,
                 "subtext": "Shareholder Equity Return"
             })
@@ -298,8 +352,8 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
 
         if last_p.revenue is not None and first_p.revenue is not None:
             rev_overview = (
-                f"{dataset.company_name} reported revenue of ${last_p.revenue:,.2f}M in {last_p.fiscal_year}, "
-                f"compared to ${first_p.revenue:,.2f}M in {first_p.fiscal_year}"
+                f"{dataset.company_name} reported revenue of {format_currency_value(last_p.revenue, currency)} in {last_p.fiscal_year}, "
+                f"compared to {format_currency_value(first_p.revenue, currency)} in {first_p.fiscal_year}"
             )
             if cagr_span is not None:
                 rev_overview += f", compounding at a {years_span}-year CAGR of {cagr_span}%."
@@ -308,7 +362,7 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
             narrative_paragraphs.append(rev_overview)
         elif last_p.revenue is not None:
             narrative_paragraphs.append(
-                f"{dataset.company_name} reported revenue of ${last_p.revenue:,.2f}M in {last_p.fiscal_year}."
+                f"{dataset.company_name} reported revenue of {format_currency_value(last_p.revenue, currency)} in {last_p.fiscal_year}."
             )
 
         latest_opm = time_series_data[-1].get("opm_pct") if time_series_data else None
@@ -329,14 +383,15 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
         worst_px = scenario_insights.get("worst_case_price") or 0.0
         downside = scenario_insights.get("downside_worst_pct") or 0.0
         scen_text = (
-            f"Valuation Scenario Model: Trailing price is ${trailing_px:,.2f} "
+            f"Valuation Scenario Model: Trailing price is {format_per_share(trailing_px, currency)} "
             f"(P/E: {trailing_pe_val}x). "
-            f"Best Case target is ${best_px:,.2f} ({upside:+}% implied upside), "
-            f"while Worst Case floor is ${worst_px:,.2f} ({downside:+}% implied downside)."
+            f"Best Case target is {format_per_share(best_px, currency)} ({upside:+}% implied upside), "
+            f"while Worst Case floor is {format_per_share(worst_px, currency)} ({downside:+}% implied downside)."
         )
         narrative_paragraphs.append(scen_text)
 
     return {
+        "currency": currency,
         "kpis": kpi_cards,
         "kpi_cards": kpi_cards,
         "time_series": time_series_data,

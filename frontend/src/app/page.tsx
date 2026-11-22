@@ -12,7 +12,7 @@ import { DcfValuationView } from '@/components/DcfValuationView';
 import { RiskIntelligenceView } from '@/components/RiskIntelligenceView';
 import { ResearchReportsView } from '@/components/ResearchReportsView';
 import { CsvImportModal } from '@/components/CsvImportModal';
-import { API_BASE } from '@/lib/api';
+import { API_BASE, API_BASE_URL } from '@/lib/api';
 
 function MainDashboardContent() {
   const router = useRouter();
@@ -26,7 +26,7 @@ function MainDashboardContent() {
   const [backendConnected, setBackendConnected] = useState<boolean>(true);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState<boolean>(false);
   const [isCsvModalOpen, setIsCsvModalOpen] = useState<boolean>(false);
-  const [connectionNotice, setConnectionNotice] = useState<string>('FastAPI (Port 8000)');
+  const [connectionNotice, setConnectionNotice] = useState<string>('Live API · Online');
   const [neonStatus, setNeonStatus] = useState<{ connected: boolean; text: string }>({
     connected: false,
     text: 'Connecting to Neon...',
@@ -59,6 +59,13 @@ function MainDashboardContent() {
       setActiveSection(tabParam);
     }
   }, [tabParam]);
+
+  // Dynamic Document Title
+  useEffect(() => {
+    if (typeof document !== 'undefined' && currentTicker) {
+      document.title = `${currentTicker} | FinSight AI`;
+    }
+  }, [currentTicker]);
 
   const handleSelectTicker = (ticker: string) => {
     setCurrentTicker(ticker);
@@ -107,8 +114,32 @@ function MainDashboardContent() {
 
     checkNeon();
 
+    // 3. Live Backend FastAPI Health Polling
+    async function checkBackend() {
+      try {
+        const res = await fetch(`${API_BASE_URL}/health`);
+        if (!isMounted) return;
+        if (res.ok) {
+          setBackendConnected(true);
+          setConnectionNotice('Live API · Online');
+        } else {
+          setBackendConnected(false);
+          setConnectionNotice('Live API · Standby');
+        }
+      } catch {
+        if (isMounted) {
+          setBackendConnected(false);
+          setConnectionNotice('Live API · Standby');
+        }
+      }
+    }
+
+    checkBackend();
+    const bInterval = setInterval(checkBackend, 30000);
+
     return () => {
       isMounted = false;
+      clearInterval(bInterval);
     };
   }, []);
 

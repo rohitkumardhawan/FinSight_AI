@@ -177,14 +177,21 @@ export const RiskIntelligenceView: React.FC<RiskIntelligenceViewProps> = ({
   }
 
   if (error && !data) {
+    const isCold = error.toLowerCase().includes('failed to fetch') || error.toLowerCase().includes('network');
     return (
-      <div className="bg-navy-900 border border-rose-500/30 rounded-xl p-8 text-center">
-        <AlertTriangle className="h-8 w-8 text-rose-400 mx-auto mb-3" />
-        <h3 className="text-base font-semibold text-white">Risk Intelligence Error</h3>
-        <p className="text-xs text-rose-300 mt-1 max-w-md mx-auto">{error}</p>
+      <div className="bg-navy-900 border border-navy-800 rounded-xl p-8 text-center shadow-lg">
+        <div className={`h-12 w-12 rounded-full ${isCold ? 'bg-amber-500/10 text-amber-400' : 'bg-rose-500/10 text-rose-400'} flex items-center justify-center mx-auto mb-3`}>
+          {isCold ? <RefreshCw className="h-6 w-6 animate-spin" /> : <AlertTriangle className="h-6 w-6" />}
+        </div>
+        <h3 className="text-base font-semibold text-white">
+          {isCold ? 'Connecting to Risk Engine...' : 'Risk Analysis Unavailable'}
+        </h3>
+        <p className="text-xs text-slate-300 mt-1 max-w-md mx-auto leading-relaxed">
+          {isCold ? 'The live market server on Render may be waking up from standby. Click retry to connect.' : error}
+        </p>
         <button
           onClick={loadRiskData}
-          className="mt-4 px-4 py-2 rounded-lg bg-navy-800 text-xs font-medium text-slate-200 hover:text-white border border-navy-700"
+          className="mt-4 px-4 py-2 rounded-lg bg-navy-800 text-xs font-medium text-gold-400 hover:text-white border border-gold-500/30 shadow-md"
         >
           Retry Risk Analysis
         </button>

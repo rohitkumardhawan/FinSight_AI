@@ -49,17 +49,17 @@ export const Sidebar: React.FC<SidebarProps> = ({
 }) => {
   return (
     <>
-      {/* Mobile Backdrop */}
+      {/* Mobile & Tablet Backdrop (< 1024px) */}
       {isOpenOnMobile && (
         <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 md:hidden"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-30 lg:hidden"
           onClick={onCloseMobile}
         />
       )}
 
       <aside
-        className={`fixed md:static inset-y-0 left-0 z-40 w-64 bg-navy-900 border-r border-navy-800 flex flex-col flex-shrink-0 min-h-screen transition-transform duration-300 ease-in-out ${
-          isOpenOnMobile ? 'translate-x-0' : '-translate-x-full md:translate-x-0'
+        className={`fixed lg:static inset-y-0 left-0 z-40 w-64 bg-navy-900 border-r border-navy-800 flex flex-col flex-shrink-0 min-h-screen transition-transform duration-300 ease-in-out ${
+          isOpenOnMobile ? 'translate-x-0' : '-translate-x-full lg:translate-x-0'
         }`}
       >
         {/* Brand Header */}
@@ -79,11 +79,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
             </div>
           </div>
 
-          {/* Close button on mobile */}
+          {/* Close button on mobile/tablet */}
           {onCloseMobile && (
             <button
               onClick={onCloseMobile}
-              className="md:hidden p-1 text-slate-400 hover:text-white"
+              className="lg:hidden p-1 text-slate-400 hover:text-white"
             >
               <X className="h-5 w-5" />
             </button>
