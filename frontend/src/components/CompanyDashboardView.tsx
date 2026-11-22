@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useState, useEffect } from 'react';
+import { useRouter } from 'next/navigation';
 import {
   TrendingUp,
   TrendingDown,
@@ -19,7 +20,8 @@ import {
   ArrowDownRight,
   ShieldCheck,
   HelpCircle,
-  FileSpreadsheet
+  FileSpreadsheet,
+  Users
 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 import {
@@ -48,18 +50,26 @@ interface CompanyDashboardViewProps {
   symbolOrId: string;
   initialData?: any;
   onRefresh?: () => void;
+  onSelectTicker?: (ticker: string) => void;
 }
 
 export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
   symbolOrId,
   initialData,
+  onRefresh,
+  onSelectTicker,
 }) => {
+  const router = useRouter();
   const [data, setData] = useState<any>(initialData || null);
   const [loading, setLoading] = useState<boolean>(!initialData);
   const [isSlowLoading, setIsSlowLoading] = useState<boolean>(false);
   const [refreshing, setRefreshing] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'income' | 'balance' | 'cashflow' | 'trends' | 'scenarios'>('income');
+
+  // Sector Peer Comparison State (Feature 1)
+  const [peerData, setPeerData] = useState<any>(null);
+  const [loadingPeers, setLoadingPeers] = useState<boolean>(false);
 
   // Cold-start notification timer for Render free-tier wake up (>5s)
   useEffect(() => {
@@ -143,6 +153,88 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
       fetchAnalysis(false);
     }
   }, [symbolOrId]);
+
+  // Fetch Sector Peers from Neon Postgres
+  useEffect(() => {
+    let isCancelled = false;
+    const fetchPeers = async () => {
+      setLoadingPeers(true);
+      try {
+        const res = await fetch(`${API_BASE}/companies/${encodeURIComponent(symbolOrId)}/peers`);
+        if (res.ok) {
+          const json = await res.json();
+          if (!isCancelled) setPeerData(json);
+        }
+      } catch (err) {
+        console.warn('Could not fetch peer comparison:', err);
+      } finally {
+        if (!isCancelled) setLoadingPeers(false);
+      }
+    };
+    if (symbolOrId) {
+      fetchPeers();
+    }
+    return () => {
+      isCancelled = true;
+    };
+  }, [symbolOrId]);
+
+  const handleSelectPeer = (peerSymbol: string) => {
+    if (onSelectTicker) {
+      onSelectTicker(peerSymbol);
+    } else {
+      router.push(`/company/${encodeURIComponent(peerSymbol)}?tab=company-analysis`);
+    }
+  };
+
+  const renderMetricComparison = (
+    val?: number | null,
+    median?: number | null,
+    isPercentage: boolean = false,
+    isLowerBetter: boolean = false,
+    currencyForVal?: string
+  ) => {
+    if (val === null || val === undefined) {
+      return <span className="text-slate-500 font-mono text-xs">—</span>;
+    }
+
+    const formattedVal = isPercentage
+      ? formatPercent(val)
+      : isLowerBetter
+      ? formatMultiple(val)
+      : currencyForVal
+      ? formatFinancialValue(val, currencyForVal)
+      : val.toLocaleString();
+
+    if (median === null || median === undefined) {
+      return <span className="text-slate-200 font-mono text-xs">{formattedVal}</span>;
+    }
+
+    const diff = val - median;
+    const beatsMedian = isLowerBetter ? diff < 0 : diff > 0;
+    const trailsMedian = isLowerBetter ? diff > 0 : diff < 0;
+
+    return (
+      <div className="flex flex-col items-end gap-0.5">
+        <span className={`font-mono text-xs font-semibold ${beatsMedian ? 'text-emerald-300' : trailsMedian ? 'text-rose-300' : 'text-slate-200'}`}>
+          {formattedVal}
+        </span>
+        {Math.abs(diff) > 0.01 && (
+          <span
+            className={`inline-flex items-center gap-0.5 text-[9px] font-mono px-1 py-0.2 rounded ${
+              beatsMedian
+                ? 'text-emerald-400 bg-emerald-950/40'
+                : trailsMedian
+                ? 'text-rose-400 bg-rose-950/40'
+                : 'text-slate-400 bg-navy-800'
+            }`}
+          >
+            {beatsMedian ? '▲ Beats' : '▼ Trails'} ({isPercentage ? `${diff > 0 ? '+' : ''}${diff.toFixed(1)}%` : `${diff > 0 ? '+' : ''}${diff.toFixed(1)}`})
+          </span>
+        )}
+      </div>
+    );
+  };
 
   // 2. Submit Question to Gemini RAG API
   const handleAsk = async (userPrompt?: string) => {
@@ -450,6 +542,195 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
           </div>
         </div>
       )}
+
+      {/* 3b. AUTOMATIC SECTOR PEER COMPARISON TABLE (Feature 1) */}
+      <div className="bg-navy-900/90 border border-navy-800 rounded-2xl p-5 sm:p-6 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-navy-800 pb-3">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="h-5 px-2 rounded bg-cyan-500/10 text-cyan-400 border border-cyan-500/30 text-[10px] font-bold uppercase tracking-wider flex items-center gap-1">
+                <Users className="h-3 w-3" />
+                Institutional Peer Universe
+              </span>
+              <span className="text-xs text-slate-400 font-medium">
+                {peerData?.sector || quote?.sector || 'Sector'} Benchmark ({peerData?.count || 6} Equities)
+              </span>
+            </div>
+            <h2 className="text-base font-bold text-white mt-1 flex items-center gap-2">
+              <span>Automatic Sector Peer Comparison</span>
+              {loadingPeers && <RefreshCw className="h-3.5 w-3.5 animate-spin text-gold-400" />}
+            </h2>
+          </div>
+
+          <div className="flex items-center gap-2 text-[11px] text-slate-400 font-medium">
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-full bg-emerald-400" />
+              <span>Beats Median</span>
+            </span>
+            <span>•</span>
+            <span className="flex items-center gap-1">
+              <span className="inline-block h-2 w-2 rounded-full bg-rose-400" />
+              <span>Trails Median</span>
+            </span>
+            <span>•</span>
+            <span className="text-slate-500">Click peer to switch</span>
+          </div>
+        </div>
+
+        {loadingPeers && !peerData ? (
+          <div className="py-8 flex flex-col items-center justify-center text-center text-xs text-slate-400">
+            <RefreshCw className="h-5 w-5 animate-spin text-gold-400 mb-2" />
+            <span>Querying Neon Postgres 301-company universe for {quote?.sector || 'sector'} peers...</span>
+          </div>
+        ) : !peerData ? (
+          <div className="py-6 text-center text-xs text-slate-400">
+            Sector peer data currently calibrating.
+          </div>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full text-xs text-left">
+              <thead>
+                <tr className="border-b border-navy-800 text-slate-400 text-[11px] font-mono uppercase bg-navy-950/60">
+                  <th className="py-2.5 px-3 font-semibold min-w-[200px]">Company</th>
+                  <th className="py-2.5 px-3 text-right font-semibold">Price</th>
+                  <th className="py-2.5 px-3 text-right font-semibold">Market Cap</th>
+                  <th className="py-2.5 px-3 text-right font-semibold">P/E</th>
+                  <th className="py-2.5 px-3 text-right font-semibold">OPM %</th>
+                  <th className="py-2.5 px-3 text-right font-semibold">Net Margin %</th>
+                  <th className="py-2.5 px-3 text-right font-semibold">ROE %</th>
+                  <th className="py-2.5 px-3 text-right font-semibold">YoY Rev Growth</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-navy-800/40 font-mono">
+                {/* Active Company Highlight Row */}
+                {peerData.target && (
+                  <tr className="bg-gold-500/10 border-l-4 border-l-gold-500 hover:bg-gold-500/15 transition-colors">
+                    <td className="py-3 px-3">
+                      <div className="flex items-center gap-2">
+                        <span className="px-1.5 py-0.5 rounded text-[9px] font-bold bg-gold-500 text-navy-950 uppercase tracking-wider">
+                          Active
+                        </span>
+                        <div>
+                          <div className="font-sans font-bold text-white text-xs">
+                            {peerData.target.name}
+                          </div>
+                          <div className="text-[10px] text-gold-400 font-mono font-medium">
+                            {peerData.target.symbol}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-right text-white font-semibold">
+                      {formatPerShare(peerData.target.price, peerData.target.currency)}
+                    </td>
+                    <td className="py-3 px-3 text-right text-slate-200">
+                      {formatFinancialValue(peerData.target.market_cap, peerData.target.currency)}
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      {renderMetricComparison(peerData.target.pe_ratio, peerData.sector_median?.pe_ratio, false, true)}
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      {renderMetricComparison(peerData.target.opm_pct, peerData.sector_median?.opm_pct, true, false)}
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      {renderMetricComparison(peerData.target.net_margin_pct, peerData.sector_median?.net_margin_pct, true, false)}
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      {renderMetricComparison(peerData.target.roe_pct, peerData.sector_median?.roe_pct, true, false)}
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      {renderMetricComparison(peerData.target.revenue_growth_pct, peerData.sector_median?.revenue_growth_pct, true, false)}
+                    </td>
+                  </tr>
+                )}
+
+                {/* Peer Companies Rows */}
+                {(peerData.peers || []).map((peer: any, idx: number) => (
+                  <tr
+                    key={idx}
+                    onClick={() => handleSelectPeer(peer.symbol)}
+                    className="hover:bg-navy-800/60 cursor-pointer transition-colors group"
+                    title={`Click to analyze ${peer.name} (${peer.symbol})`}
+                  >
+                    <td className="py-3 px-3">
+                      <div className="flex items-center gap-1.5">
+                        <ChevronRight className="h-3 w-3 text-slate-500 group-hover:text-gold-400 transition-colors" />
+                        <div>
+                          <div className="font-sans font-medium text-slate-200 group-hover:text-gold-300 transition-colors flex items-center gap-1">
+                            <span>{peer.name}</span>
+                            <ExternalLink className="h-2.5 w-2.5 text-slate-500 group-hover:text-gold-400" />
+                          </div>
+                          <div className="text-[10px] text-slate-400 font-mono">
+                            {peer.symbol}
+                          </div>
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-right text-slate-300 font-mono">
+                      {formatPerShare(peer.price, peer.currency)}
+                    </td>
+                    <td className="py-3 px-3 text-right text-slate-300 font-mono">
+                      {formatFinancialValue(peer.market_cap, peer.currency)}
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      {renderMetricComparison(peer.pe_ratio, peerData.sector_median?.pe_ratio, false, true)}
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      {renderMetricComparison(peer.opm_pct, peerData.sector_median?.opm_pct, true, false)}
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      {renderMetricComparison(peer.net_margin_pct, peerData.sector_median?.net_margin_pct, true, false)}
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      {renderMetricComparison(peer.roe_pct, peerData.sector_median?.roe_pct, true, false)}
+                    </td>
+                    <td className="py-3 px-3 text-right">
+                      {renderMetricComparison(peer.revenue_growth_pct, peerData.sector_median?.revenue_growth_pct, true, false)}
+                    </td>
+                  </tr>
+                ))}
+
+                {/* Sector Median Benchmark Row */}
+                {peerData.sector_median && (
+                  <tr className="bg-navy-950/90 border-t-2 border-t-gold-500/40 font-bold">
+                    <td className="py-3 px-3">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded text-[9px] font-bold bg-cyan-950 text-cyan-300 border border-cyan-800 font-mono">
+                          MEDIAN
+                        </span>
+                        <div className="font-sans text-xs text-white">
+                          {peerData.sector_median.name}
+                        </div>
+                      </div>
+                    </td>
+                    <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                      {formatPerShare(peerData.sector_median.price, peerData.sector_median.currency)}
+                    </td>
+                    <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                      {formatFinancialValue(peerData.sector_median.market_cap, peerData.sector_median.currency)}
+                    </td>
+                    <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                      {formatMultiple(peerData.sector_median.pe_ratio)}
+                    </td>
+                    <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                      {formatPercent(peerData.sector_median.opm_pct)}
+                    </td>
+                    <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                      {formatPercent(peerData.sector_median.net_margin_pct)}
+                    </td>
+                    <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                      {formatPercent(peerData.sector_median.roe_pct)}
+                    </td>
+                    <td className="py-3 px-3 text-right text-cyan-300 font-mono">
+                      {formatPercent(peerData.sector_median.revenue_growth_pct)}
+                    </td>
+                  </tr>
+                )}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </div>
 
       {/* 4. MAIN FINANCIAL STATEMENTS & TRENDS TABS */}
       <div className="bg-navy-900 border border-navy-800 rounded-2xl shadow-xl overflow-hidden">

@@ -95,12 +95,129 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     loadData();
   }, [ticker]);
 
-  // Filter periods by FY vs Quarterly
-  const filteredPeriods = periods.filter((s) => {
-    if (periodFilter === 'FY') return !s.fiscal_period || s.fiscal_period.toUpperCase() === 'FY' || s.fiscal_period.toUpperCase().startsWith('FY');
-    if (periodFilter === 'quarterly') return s.fiscal_period && !s.fiscal_period.toUpperCase().startsWith('FY');
-    return true;
-  });
+  // Filter periods by FY vs Quarterly and sort chronologically
+  const parseQuarterOrder = (periodStr: string, year?: number) => {
+    const match = periodStr.match(/Q(\d)\s*(\d{4})?/i);
+    if (match) {
+      const q = parseInt(match[1], 10);
+      const y = match[2] ? parseInt(match[2], 10) : (year || 0);
+      return y * 10 + q;
+    }
+    return (year || 0) * 10;
+  };
+
+  const filteredPeriods = periods
+    .filter((s) => {
+      // Hide columns where all core metrics are null/empty
+      const hasCoreData = (
+        (s.revenue !== null && s.revenue !== undefined) ||
+        (s.operating_income !== null && s.operating_income !== undefined) ||
+        (s.net_income !== null && s.net_income !== undefined) ||
+        (s.total_assets !== null && s.total_assets !== undefined) ||
+        (s.operating_cash_flow !== null && s.operating_cash_flow !== undefined)
+      );
+      if (!hasCoreData) return false;
+
+      const isAnnual = !s.fiscal_period || s.fiscal_period.toUpperCase() === 'FY' || s.fiscal_period.toUpperCase().startsWith('FY');
+      if (periodFilter === 'FY') return isAnnual;
+      if (periodFilter === 'quarterly') return !isAnnual;
+      return true;
+    })
+    .sort((a, b) => {
+      if (periodFilter === 'quarterly') {
+        return parseQuarterOrder(a.fiscal_period || '', a.fiscal_year) - parseQuarterOrder(b.fiscal_period || '', b.fiscal_year);
+      }
+      return (a.fiscal_year || 0) - (b.fiscal_year || 0);
+    });
+
+  // Calculate counts for Annual vs Quarterly periods
+  const annualCount = periods.filter((s) => !s.fiscal_period || s.fiscal_period.toUpperCase() === 'FY' || s.fiscal_period.toUpperCase().startsWith('FY')).length;
+  const quarterlyCount = periods.filter((s) => s.fiscal_period && !s.fiscal_period.toUpperCase().startsWith('FY')).length;
+
+  // Formula-injection sanitization for CSV export (CWE-1236 mitigation)
+  const sanitizeCsvCell = (val: any): string => {
+    if (val === null || val === undefined) return '""';
+    let str = String(val).trim();
+    if (/^[=+\-@\t\r]/.test(str)) {
+      str = "'" + str;
+    }
+    return `"${str.replace(/"/g, '""')}"`;
+  };
+
+  const handleExportCsv = () => {
+    if (!filteredPeriods || filteredPeriods.length === 0) return;
+
+    const headers = [
+      `Financial Line Item (${getUnitLabel(companyInfo.currency)})`,
+      ...filteredPeriods.map((p) => p.fiscal_period || `FY${p.fiscal_year}`)
+    ];
+
+    const rows: string[][] = [];
+
+    const incomeItems = [
+      { label: 'Revenue (Total Net Sales)', key: 'revenue' },
+      { label: 'Cost of Goods Sold (COGS)', key: 'cost_of_revenue' },
+      { label: 'Gross Profit', key: 'gross_profit' },
+      { label: 'Operating Income (EBIT)', key: 'operating_income' },
+      { label: 'Operating Expenses', key: 'operating_expenses' },
+      { label: 'Net Income', key: 'net_income' },
+    ];
+
+    const balanceItems = [
+      { label: 'Cash & Cash Equivalents', key: 'cash_and_equivalents' },
+      { label: 'Current Assets', key: 'current_assets' },
+      { label: 'Total Assets', key: 'total_assets' },
+      { label: 'Current Liabilities', key: 'current_liabilities' },
+      { label: 'Total Debt (Short + Long Term)', key: 'total_debt' },
+      { label: 'Total Liabilities', key: 'total_liabilities' },
+      { label: "Total Stockholders' Equity", key: 'total_equity' },
+    ];
+
+    const cashFlowItems = [
+      { label: 'Cash Flow from Operations (OCF)', key: 'operating_cash_flow' },
+      { label: 'Capital Expenditures (CapEx)', key: 'capital_expenditure' },
+      { label: 'Free Cash Flow (FCF)', key: 'free_cash_flow' },
+      { label: 'Depreciation & Amortization', key: 'depreciation_amortization' },
+    ];
+
+    const addSection = (sectionTitle: string, items: { label: string; key: string }[]) => {
+      rows.push([sectionTitle, ...filteredPeriods.map(() => '')]);
+      items.forEach((item) => {
+        const rowVals = filteredPeriods.map((p) => {
+          const raw = p[item.key];
+          if (raw === null || raw === undefined) return 'N/A';
+          return formatFinancialValue(raw, companyInfo.currency);
+        });
+        rows.push([item.label, ...rowVals]);
+      });
+    };
+
+    if (activeTab === 'income' || activeTab === 'all') {
+      addSection('INCOME STATEMENT', incomeItems);
+    }
+    if (activeTab === 'balance' || activeTab === 'all') {
+      addSection('BALANCE SHEET', balanceItems);
+    }
+    if (activeTab === 'cash_flow' || activeTab === 'all') {
+      addSection('CASH FLOW STATEMENT', cashFlowItems);
+    }
+
+    const csvContent = [
+      headers.map(sanitizeCsvCell).join(','),
+      ...rows.map((row) => row.map(sanitizeCsvCell).join(','))
+    ].join('\r\n');
+
+    const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+    const url = URL.createObjectURL(blob);
+    const link = document.createElement('a');
+    const safeSymbol = (companyInfo.symbol || 'COMPANY').replace(/[^a-zA-Z0-9_.-]/g, '_');
+    link.setAttribute('href', url);
+    link.setAttribute('download', `${safeSymbol}_Financials.csv`);
+    document.body.appendChild(link);
+    link.click();
+    document.body.removeChild(link);
+    URL.revokeObjectURL(url);
+  };
 
   // Calculate YoY growth between periods
   const calculateGrowth = (current?: number | null, prev?: number | null) => {
@@ -188,7 +305,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
           </div>
         </div>
 
-        {/* Action Buttons: Import CSV, Download Template, Refresh */}
+        {/* Action Buttons: Export CSV, Import CSV, Download Template, Refresh */}
         <div className="flex items-center gap-2.5 flex-wrap">
           <button
             type="button"
@@ -199,13 +316,25 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
             <span>Refresh</span>
           </button>
 
+          {/* One-Click Export to CSV (Feature 3) */}
+          <button
+            type="button"
+            onClick={handleExportCsv}
+            disabled={filteredPeriods.length === 0}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 border border-emerald-500/40 hover:border-emerald-400 text-xs font-semibold text-emerald-400 transition-colors shadow-sm disabled:opacity-50"
+            title="Export normalized financial statements to sanitized CSV"
+          >
+            <Download className="h-3.5 w-3.5" />
+            <span>Export CSV</span>
+          </button>
+
           <a
             href={`${API_BASE}/statements/csv-template?type=combined`}
             target="_blank"
             rel="noreferrer"
             className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 border border-navy-800 hover:border-gold-500/30 text-xs font-medium text-gold-400 transition-colors"
           >
-            <Download className="h-3.5 w-3.5" />
+            <FileSpreadsheet className="h-3.5 w-3.5" />
             <span>CSV Template</span>
           </a>
 
@@ -267,33 +396,53 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
           </button>
         </div>
 
-        {/* Period Filter (FY vs Quarterly) */}
-        <div className="flex items-center gap-1.5 self-end sm:self-auto text-xs">
+        {/* Period Filter (Annual | Quarterly Toggle Pill) */}
+        <div className="flex items-center gap-2 self-end sm:self-auto text-xs">
           <span className="text-slate-400 text-[11px] font-medium flex items-center gap-1">
-            <Calendar className="h-3 w-3 text-slate-500" />
-            Period:
+            <Calendar className="h-3 w-3 text-gold-400" />
+            Reporting Horizon:
           </span>
-          <div className="bg-navy-950 p-0.5 rounded-lg border border-navy-800 flex">
+          <div className="bg-navy-950 p-1 rounded-xl border border-navy-800 flex gap-1 shadow-inner">
             <button
               onClick={() => setPeriodFilter('FY')}
-              className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
-                periodFilter === 'FY' ? 'bg-navy-800 text-white font-bold' : 'text-slate-400 hover:text-white'
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                periodFilter === 'FY'
+                  ? 'bg-gold-500 text-navy-950 font-bold shadow'
+                  : 'text-slate-400 hover:text-white hover:bg-navy-800'
               }`}
             >
-              Annual (FY)
+              <span>Annual</span>
+              {annualCount > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  periodFilter === 'FY' ? 'bg-navy-950/20 text-navy-950 font-bold' : 'bg-navy-800 text-slate-400'
+                }`}>
+                  {annualCount}Y
+                </span>
+              )}
             </button>
             <button
               onClick={() => setPeriodFilter('quarterly')}
-              className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
-                periodFilter === 'quarterly' ? 'bg-navy-800 text-white font-bold' : 'text-slate-400 hover:text-white'
+              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                periodFilter === 'quarterly'
+                  ? 'bg-gold-500 text-navy-950 font-bold shadow'
+                  : 'text-slate-400 hover:text-white hover:bg-navy-800'
               }`}
             >
-              Quarterly (Q)
+              <span>Quarterly</span>
+              {quarterlyCount > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  periodFilter === 'quarterly' ? 'bg-navy-950/20 text-navy-950 font-bold' : 'bg-navy-800 text-slate-400'
+                }`}>
+                  {quarterlyCount}Q
+                </span>
+              )}
             </button>
             <button
               onClick={() => setPeriodFilter('all')}
-              className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors ${
-                periodFilter === 'all' ? 'bg-navy-800 text-white font-bold' : 'text-slate-400 hover:text-white'
+              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                periodFilter === 'all'
+                  ? 'bg-navy-800 text-white font-bold'
+                  : 'text-slate-400 hover:text-white'
               }`}
             >
               All

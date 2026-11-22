@@ -207,6 +207,7 @@ function MainDashboardContent() {
             <CompanyDashboardView
               symbolOrId={currentTicker}
               onRefresh={() => setCurrentTicker((t) => t)}
+              onSelectTicker={handleSelectTicker}
             />
           ) : activeSection === 'financial-statements' ? (
             /* Financial Statements Module with CSV Import */

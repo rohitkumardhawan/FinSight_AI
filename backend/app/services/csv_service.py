@@ -168,6 +168,15 @@ def parse_and_validate_csv(
                     FinancialStatement.fiscal_period == fiscal_period
                 )
             ).scalar_one_or_none()
+            if not existing:
+                from app.models.dataset import FinancialPeriod
+                existing = db.execute(
+                    select(FinancialPeriod).where(
+                        FinancialPeriod.company_id == company_id,
+                        FinancialPeriod.fiscal_year == fiscal_year,
+                        FinancialPeriod.fiscal_period == fiscal_period
+                    )
+                ).scalar_one_or_none()
             if existing:
                 is_duplicate = True
                 duplicate_count += 1

@@ -150,6 +150,27 @@ def test_csv_validation_and_duplicate_detection():
         assert result["success"] is False
         assert any("Required header" in err for err in result["errors"])
 
+        # Ensure AAPL 2024 FY statement exists for duplicate detection test
+        from app.models.financial_statement import FinancialStatement
+        from sqlalchemy import select
+        existing_stmt = db.execute(
+            select(FinancialStatement).where(
+                FinancialStatement.company_id == 1,
+                FinancialStatement.fiscal_year == 2024,
+                FinancialStatement.fiscal_period == "FY"
+            )
+        ).scalar_one_or_none()
+        if not existing_stmt:
+            db.add(FinancialStatement(
+                company_id=1,
+                fiscal_year=2024,
+                fiscal_period="FY",
+                statement_type="income",
+                revenue=Decimal("391035.00"),
+                net_income=Decimal("101200.00")
+            ))
+            db.commit()
+
         # Valid CSV with existing period (AAPL 2024 FY was seeded, so it's a duplicate)
         csv_with_dup = (
             "fiscal_year,fiscal_period,revenue,net_income,source\n"

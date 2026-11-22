@@ -59,8 +59,13 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
     5. Scenario valuation modeling (Trailing vs Best Case vs Worst Case)
     6. Grounded deterministic narrative summary
     """
-    # Separate annual periods (FY) from special periods (TTM, Best Case, Worst Case)
-    annual_periods = [p for p in dataset.periods if p.fiscal_year is not None]
+    # Separate annual periods (FY) from quarterly and special periods (TTM, Best Case, Worst Case)
+    annual_periods = [
+        p for p in dataset.periods
+        if p.fiscal_year is not None
+        and getattr(p, "statement_type", "") != "quarterly"
+        and (not p.fiscal_period or p.fiscal_period.startswith("FY"))
+    ]
     annual_periods.sort(key=lambda p: p.fiscal_year or 0)
 
     special_periods = {p.fiscal_period: p for p in dataset.periods if p.fiscal_year is None}

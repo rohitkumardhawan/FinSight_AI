@@ -263,6 +263,105 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
         )
         periods.append(record)
 
+    # 3b. Fetch Quarterly Statements (last 4-6 quarters)
+    try:
+        q_income_stmt = getattr(ticker, "quarterly_income_stmt", None)
+        if q_income_stmt is None or (isinstance(q_income_stmt, pd.DataFrame) and q_income_stmt.empty):
+            q_income_stmt = getattr(ticker, "quarterly_financials", None)
+        q_balance_sheet = getattr(ticker, "quarterly_balance_sheet", None)
+        q_cashflow = getattr(ticker, "quarterly_cashflow", None)
+
+        q_dates = set()
+        for q_stmt in (q_income_stmt, q_balance_sheet, q_cashflow):
+            if q_stmt is not None and not q_stmt.empty:
+                q_dates.update(q_stmt.columns)
+
+        sorted_q_dates = sorted(list(q_dates))
+        if len(sorted_q_dates) > 6:
+            sorted_q_dates = sorted_q_dates[-6:]
+
+        for q_dt in sorted_q_dates:
+            q_yr = q_dt.year if hasattr(q_dt, "year") else int(str(q_dt)[:4])
+            q_m = q_dt.month if hasattr(q_dt, "month") else int(str(q_dt)[5:7])
+            q_num = (q_m - 1) // 3 + 1
+            q_label = f"Q{q_num} {q_yr}"
+
+            # Income Statement
+            rev_q = _get_metric_val(q_income_stmt, ["Total Revenue", "Operating Revenue"], q_dt)
+            cost_of_rev_q = _get_metric_val(q_income_stmt, ["Cost Of Revenue", "Reconciled Cost Of Revenue"], q_dt)
+            gross_p_q = _get_metric_val(q_income_stmt, ["Gross Profit"], q_dt)
+            if gross_p_q is None and rev_q is not None and cost_of_rev_q is not None:
+                gross_p_q = rev_q - cost_of_rev_q
+
+            op_exp_q = _get_metric_val(q_income_stmt, ["Operating Expense"], q_dt)
+            op_inc_q = _get_metric_val(q_income_stmt, ["Operating Income"], q_dt)
+            ebit_q = _get_metric_val(q_income_stmt, ["EBIT", "Normalized EBITDA"], q_dt)
+            other_inc_q = _get_metric_val(q_income_stmt, ["Other Income Expense", "Non Operating Income Expense"], q_dt)
+            depr_q = _get_metric_val(q_income_stmt, ["Reconciled Depreciation", "Depreciation And Amortization In Income Statement"], q_dt)
+            interest_q = _get_metric_val(q_income_stmt, ["Interest Expense", "Interest Expense Non Operating"], q_dt)
+            pbt_q = _get_metric_val(q_income_stmt, ["Pretax Income"], q_dt)
+            tax_exp_q = _get_metric_val(q_income_stmt, ["Tax Provision", "Tax Effect Of Unusual Items"], q_dt)
+            net_inc_q = _get_metric_val(q_income_stmt, ["Net Income Common Stockholders", "Net Income"], q_dt)
+            eps_q = _get_metric_val(q_income_stmt, ["Diluted EPS", "Basic EPS"], q_dt)
+
+            # Balance Sheet
+            total_assets_q = _get_metric_val(q_balance_sheet, ["Total Assets"], q_dt)
+            current_assets_q = _get_metric_val(q_balance_sheet, ["Current Assets"], q_dt)
+            total_liab_q = _get_metric_val(q_balance_sheet, ["Total Liabilities Net Minority Interest", "Total Liabilities"], q_dt)
+            current_liab_q = _get_metric_val(q_balance_sheet, ["Current Liabilities"], q_dt)
+            total_equity_q = _get_metric_val(q_balance_sheet, ["Stockholders Equity", "Common Stock Equity"], q_dt)
+            cash_q = _get_metric_val(q_balance_sheet, ["Cash And Cash Equivalents", "Cash Financial"], q_dt)
+            inventory_q = _get_metric_val(q_balance_sheet, ["Inventory"], q_dt)
+            total_debt_q = _get_metric_val(q_balance_sheet, ["Total Debt"], q_dt)
+
+            # Cash Flow
+            cfo_q = _get_metric_val(q_cashflow, ["Operating Cash Flow", "Cash Flow From Continuing Operating Activities"], q_dt)
+            capex_q = _get_metric_val(q_cashflow, ["Capital Expenditure"], q_dt)
+            if capex_q is not None:
+                capex_q = abs(capex_q)
+            fcf_q = _get_metric_val(q_cashflow, ["Free Cash Flow"], q_dt)
+            if fcf_q is None and cfo_q is not None and capex_q is not None:
+                fcf_q = cfo_q - capex_q
+
+            opm_q = round((op_inc_q / rev_q) * 100, 2) if (op_inc_q is not None and rev_q and rev_q > 0) else None
+
+            q_record = FinancialPeriodRecord(
+                fiscal_year=q_yr,
+                fiscal_period=q_label,
+                statement_type="quarterly",
+                revenue=rev_q,
+                cost_of_revenue=cost_of_rev_q,
+                gross_profit=gross_p_q,
+                operating_expenses=op_exp_q,
+                operating_income=op_inc_q,
+                other_income=other_inc_q,
+                ebit=ebit_q,
+                depreciation_amortization=depr_q,
+                interest_expense=interest_q,
+                profit_before_tax=pbt_q,
+                tax_expense=tax_exp_q,
+                net_income=net_inc_q,
+                eps=eps_q,
+                share_price=float(current_price) if current_price else None,
+                pe_ratio=float(trailing_pe) if trailing_pe else None,
+                opm_pct=opm_q,
+                total_assets=total_assets_q,
+                current_assets=current_assets_q,
+                total_liabilities=total_liab_q,
+                current_liabilities=current_liab_q,
+                total_equity=total_equity_q,
+                cash_and_equivalents=cash_q,
+                inventory=inventory_q,
+                total_debt=total_debt_q,
+                operating_cash_flow=cfo_q,
+                capital_expenditure=capex_q,
+                free_cash_flow=fcf_q,
+                source=f"Yahoo Finance Quarterly ({clean_symbol})"
+            )
+            periods.append(q_record)
+    except Exception as q_err:
+        logger.warning(f"Failed to fetch quarterly statements for {clean_symbol}: {q_err}")
+
     # 4. Construct ParsedCompanyDataset
     raw_metadata = {
         "symbol": clean_symbol,

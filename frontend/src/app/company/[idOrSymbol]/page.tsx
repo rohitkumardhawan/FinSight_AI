@@ -78,7 +78,10 @@ function CompanyDetailContent() {
         {/* Dynamic Workspace Container */}
         <main className="flex-1 overflow-y-auto p-4 sm:p-6 lg:p-8 space-y-6">
           {activeSection === 'overview' || activeSection === 'company-analysis' || activeSection === 'ai-research' ? (
-            <CompanyDashboardView symbolOrId={symbol} />
+            <CompanyDashboardView
+              symbolOrId={symbol}
+              onSelectTicker={handleSelectTicker}
+            />
           ) : activeSection === 'financial-statements' ? (
             <FinancialStatementsView
               ticker={symbol}

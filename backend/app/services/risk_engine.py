@@ -124,7 +124,12 @@ def calculate_risk_intelligence(
     """
     Computes deterministic risk pillars and grounded watchpoints for a company.
     """
-    annual_periods = [p for p in periods if p.fiscal_year is not None]
+    annual_periods = [
+        p for p in periods
+        if p.fiscal_year is not None
+        and getattr(p, "statement_type", "") != "quarterly"
+        and (not getattr(p, "fiscal_period", "") or getattr(p, "fiscal_period", "").startswith("FY"))
+    ]
     if not annual_periods:
         annual_periods = periods
     sorted_periods = sorted(annual_periods, key=lambda p: p.fiscal_year or 0)

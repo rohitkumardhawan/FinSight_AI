@@ -218,9 +218,13 @@ def calculate_dcf(
     Computes a full institutional DCF valuation model for a company.
     Enforces strict validation: wacc > terminal_growth + 0.01
     """
-    annual_periods = [p for p in periods if p.fiscal_year is not None]
+    annual_periods = [
+        p for p in periods
+        if p.fiscal_year is not None
+        and getattr(p, "statement_type", "") != "quarterly"
+        and (not getattr(p, "fiscal_period", "") or getattr(p, "fiscal_period", "").startswith("FY"))
+    ]
     if not annual_periods:
-        # Fallback to all periods if fiscal_year is not set on periods
         annual_periods = periods
 
     currency = (company.currency or "USD").upper()

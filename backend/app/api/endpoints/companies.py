@@ -23,6 +23,7 @@ from app.services.rag_service import index_company_chunks, ask_company_question
 from app.services.dcf_engine import calculate_dcf, DCFRequest, DCFResponse
 from app.services.risk_engine import calculate_risk_intelligence, RiskIntelligenceResponse
 from app.services.report_generator import generate_pdf_report, get_report_preview_data
+from app.services.peer_engine import get_sector_peers
 
 logger = logging.getLogger(__name__)
 
@@ -118,6 +119,26 @@ def get_or_fetch_company_analysis(
         if age_seconds < 24 * 3600 and "auto_insights" in company.metadata_json:
             periods_list = [p.metrics_json for p in company.periods if p.metrics_json]
             if periods_list:
+                # Auto-enrich quarterly periods if missing in cached record
+                has_quarterly = any(p.get("statement_type") == "quarterly" for p in periods_list)
+                if not has_quarterly:
+                    try:
+                        from app.services.auto_fetcher import fetch_company_data
+                        parsed_live = fetch_company_data(symbol_clean)
+                        for p in parsed_live.periods:
+                            if p.statement_type == "quarterly":
+                                fp = FinancialPeriod(
+                                    company_id=company.id,
+                                    fiscal_year=p.fiscal_year,
+                                    fiscal_period=p.fiscal_period,
+                                    statement_type=p.statement_type,
+                                    metrics_json=p.model_dump()
+                                )
+                                db.add(fp)
+                                periods_list.append(p.model_dump())
+                        db.commit()
+                    except Exception as q_sync_err:
+                        logger.debug(f"Failed to auto-enrich quarterly periods: {q_sync_err}")
                 quote = company.metadata_json.get("quote", {})
                 quote_updated = quote.get("quote_updated_at")
                 need_quote_refresh = False
@@ -275,6 +296,26 @@ def get_or_fetch_company_analysis(
         "scenarios": parsed.scenarios,
         "auto_insights": parsed.auto_insights
     }
+
+@router.get("/{symbol}/peers")
+def get_company_sector_peers(
+    symbol: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Automatic Sector Peer Comparison:
+    Returns target company metrics, up to 5 sector peers from Neon Postgres,
+    and the computed Sector Median benchmark row.
+    """
+    try:
+        return get_sector_peers(symbol, db)
+    except Exception as e:
+        logger.error(f"Failed to get sector peers for {symbol}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Failed to calculate sector peers: {str(e)}"
+        )
+
 
 @router.post("/{company_id}/ask", response_model=AskQuestionResponse)
 @limiter.limit("20/minute")
