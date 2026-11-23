@@ -280,7 +280,7 @@ def generate_executive_thesis(
                 f"Paragraph 2 on valuation verdict, DCF sensitivity, and risk profile."
             )
 
-            models_to_try = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest", "gemini-3.8-flash"]
+            models_to_try = ["gemini-3.5-flash", "gemini-3.6-flash", "gemini-3.1-flash-lite"]
             for model_id in models_to_try:
                 try:
                     resp = client.models.generate_content(

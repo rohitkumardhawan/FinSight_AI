@@ -789,7 +789,14 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
                 free_cash_flow=fcf_q,
                 source=f"Yahoo Finance Quarterly ({clean_symbol})"
             )
-            periods.append(q_record)
+            has_core_q_data = (
+                rev_q is not None or
+                op_inc_q is not None or
+                net_inc_q is not None or
+                cfo_q is not None
+            )
+            if has_core_q_data:
+                periods.append(q_record)
     except Exception as q_err:
         logger.warning(f"Failed to fetch quarterly statements for {clean_symbol}: {q_err}")
 

@@ -10,7 +10,8 @@ import {
   Database,
   CheckCircle2,
   HelpCircle,
-  Calendar
+  Calendar,
+  AlertTriangle
 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 import { PeriodFilterBar, EmptyPeriodSelectionFallback, ALL_YEARS, extractYear, isAnnualPeriod } from './PeriodFilterBar';
@@ -50,7 +51,9 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
   });
   const [loading, setLoading] = useState<boolean>(true);
   const [recalculating, setRecalculating] = useState<boolean>(false);
+  const [error, setError] = useState<string | null>(null);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+  const abortControllerRef = React.useRef<AbortController | null>(null);
 
   // Filter and sort helper functions
   const isQuarterlyPeriod = (p: any) =>
@@ -66,10 +69,23 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
   };
 
   const loadData = async (forceRefresh: boolean = false) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 20000);
+
     setLoading(true);
+    setError(null);
     try {
       const sym = ticker || 'ASIANPAINT.NS';
-      const res = await fetch(`${API_BASE}/companies/${encodeURIComponent(sym)}/analysis?refresh=${forceRefresh}`);
+      const res = await fetch(`${API_BASE}/companies/${encodeURIComponent(sym)}/analysis?refresh=${forceRefresh}`, {
+        signal: controller.signal,
+      });
       if (!res.ok) {
         throw new Error(`Failed to load ratios: ${res.statusText}`);
       }
@@ -90,7 +106,8 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
       const valid = sorted.filter((p: any) =>
         (p.revenue !== null && p.revenue !== undefined) ||
         (p.operating_income !== null && p.operating_income !== undefined) ||
-        (p.net_income !== null && p.net_income !== undefined)
+        (p.net_income !== null && p.net_income !== undefined) ||
+        (p.operating_cash_flow !== null && p.operating_cash_flow !== undefined)
       );
       const resolvedPeriods = valid.length > 0 ? valid : sorted;
       setPeriods(resolvedPeriods);
@@ -107,14 +124,28 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
         setSelectedYears(availYears);
       }
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+        if (abortControllerRef.current === controller) {
+          setError('Financial ratios request timed out (20s). Click retry to re-sync.');
+        }
+        return;
+      }
       console.warn('Could not load ratios dataset:', err);
+      setError(err.message || 'Failed to load financial ratios dataset');
     } finally {
-      setLoading(false);
+      clearTimeout(timeoutId);
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     loadData();
+
+    return () => {
+      abortControllerRef.current?.abort();
+    };
   }, [ticker]);
 
   const handleRecalculate = async () => {
@@ -418,6 +449,22 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
           </div>
           <div className="text-sm font-semibold text-white">Calibrating Financial Ratios...</div>
           <div className="text-xs text-slate-400 mt-1">Crunching institutional multi-year metrics from verified disclosures</div>
+        </div>
+      ) : error && periods.length === 0 ? (
+        <div className="flex flex-col items-center justify-center min-h-[350px] text-center p-8 bg-navy-900/50 rounded-2xl border border-navy-800 shadow-lg">
+          <div className="h-12 w-12 rounded-full bg-rose-500/10 text-rose-400 flex items-center justify-center mb-3">
+            <AlertTriangle className="h-6 w-6" />
+          </div>
+          <h3 className="text-base font-semibold text-white">Financial Ratios Unavailable</h3>
+          <p className="text-xs text-slate-300 max-w-md mt-1 leading-relaxed">
+            {error}
+          </p>
+          <button
+            onClick={() => loadData(true)}
+            className="mt-4 px-4 py-2 rounded-lg bg-navy-800 hover:bg-navy-750 text-xs font-medium text-gold-400 border border-gold-500/30 flex items-center gap-1.5 transition-all shadow-md"
+          >
+            <RefreshCw className="h-3.5 w-3.5" /> Retry Loading Ratios
+          </button>
         </div>
       ) : periods.length === 0 ? (
         <div className="flex flex-col items-center justify-center min-h-[350px] text-center p-8 bg-navy-900/50 rounded-2xl border border-navy-800 shadow-lg">

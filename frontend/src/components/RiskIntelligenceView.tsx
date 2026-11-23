@@ -104,15 +104,28 @@ export const RiskIntelligenceView: React.FC<RiskIntelligenceViewProps> = ({
   const [data, setData] = useState<RiskData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
+  const abortControllerRef = React.useRef<AbortController | null>(null);
 
   const sym = ticker || 'ASIANPAINT.NS';
 
   const loadRiskData = async () => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 20000);
+
     setLoading(true);
     setError(null);
 
     try {
-      const res = await fetch(`${API_BASE}/companies/${encodeURIComponent(sym)}/risk`);
+      const res = await fetch(`${API_BASE}/companies/${encodeURIComponent(sym)}/risk`, {
+        signal: controller.signal,
+      });
       if (!res.ok) {
         const errJson = await res.json().catch(() => ({}));
         throw new Error(errJson.detail || `Server error: ${res.statusText}`);
@@ -121,14 +134,27 @@ export const RiskIntelligenceView: React.FC<RiskIntelligenceViewProps> = ({
       const resData: RiskData = await res.json();
       setData(resData);
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+        if (abortControllerRef.current === controller) {
+          setError('Risk engine request timed out (20s). Click retry to evaluate.');
+        }
+        return;
+      }
       setError(err.message || 'Failed to fetch risk intelligence analysis');
     } finally {
-      setLoading(false);
+      clearTimeout(timeoutId);
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
     loadRiskData();
+
+    return () => {
+      abortControllerRef.current?.abort();
+    };
   }, [sym]);
 
   const getTierColor = (tier: string) => {

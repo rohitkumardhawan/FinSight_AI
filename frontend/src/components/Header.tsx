@@ -59,6 +59,7 @@ export const Header: React.FC<HeaderProps> = ({
   const [marketIndices, setMarketIndices] = useState<MarketIndexQuote[]>(DEFAULT_INDICES);
   const searchContainerRef = useRef<HTMLDivElement>(null);
   const searchInputRef = useRef<HTMLInputElement>(null);
+  const searchCacheRef = useRef<Map<string, CompanySearchResult[]>>(new Map());
 
   // Reset selectedIndex to 0 when results update
   useEffect(() => {
@@ -155,7 +156,7 @@ export const Header: React.FC<HeaderProps> = ({
     }
   };
 
-  // 2. Debounced (250ms) Live Search across Indian (NSE/BSE) and Global markets
+  // 2. Debounced (250ms) Live Search with Instant In-Memory Cache (<50ms)
   useEffect(() => {
     const trimmed = searchTerm.trim();
 
@@ -165,6 +166,23 @@ export const Header: React.FC<HeaderProps> = ({
       }
       setIsSearching(false);
       return;
+    }
+
+    const cacheKey = trimmed.toLowerCase();
+
+    // 2a. Instant cache or local index hit (<15ms)
+    if (searchCacheRef.current.has(cacheKey)) {
+      setResults(searchCacheRef.current.get(cacheKey)!);
+      setIsSearching(false);
+      return;
+    }
+
+    const localHits = recentCompanies.filter((c) =>
+      c.symbol.toLowerCase().includes(cacheKey) ||
+      c.name.toLowerCase().includes(cacheKey)
+    );
+    if (localHits.length > 0) {
+      setResults(localHits);
     }
 
     setIsSearching(true);
@@ -177,6 +195,7 @@ export const Header: React.FC<HeaderProps> = ({
         if (res.ok) {
           const data = await res.json();
           if (!isCancelled && Array.isArray(data)) {
+            searchCacheRef.current.set(cacheKey, data);
             setResults(data);
           }
         }
@@ -202,12 +221,15 @@ export const Header: React.FC<HeaderProps> = ({
         localStorage.setItem('finsight_last_company', sym);
       } catch {}
     }
-    onSelectTicker(sym);
     setSearchOpen(false);
     setSearchTerm('');
-    try {
-      router.push(`/company/${encodeURIComponent(sym)}`);
-    } catch {}
+    if (onSelectTicker) {
+      onSelectTicker(sym);
+    } else {
+      try {
+        router.push(`/company/${encodeURIComponent(sym)}`);
+      } catch {}
+    }
   };
 
   return (

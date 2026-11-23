@@ -11,6 +11,7 @@ import logging
 from sqlalchemy.orm import Session
 from sqlalchemy import select, text
 from google import genai
+from google.genai import types
 
 from app.core.config import settings
 from app.models.dataset import RagChunk, FinancialPeriod
@@ -162,6 +163,72 @@ def _build_deterministic_answer(
     m_latest = latest_p.metrics_json or {} if latest_p else {}
     m_prev = prev_p.metrics_json or {} if prev_p else {}
 
+    # 0. Multi-metric trend & progression inquiries (e.g. "debt-to-equity and free cash flow trend", "5-year revenue and margin evolution")
+    has_trend_intent = any(k in q_lower for k in ("trend", "progression", "evolution", "history", "historical", "over time", "multi-year", "years", "cagr"))
+    has_leverage = any(k in q_lower for k in ("debt", "leverage", "d/e", "debt-to-equity", "solvency"))
+    has_cash_flow = any(k in q_lower for k in ("cash", "fcf", "free cash flow", "operating cash", "ocf", "capex"))
+    has_profitability = any(k in q_lower for k in ("margin", "revenue", "ebitda", "profit", "opm", "sales"))
+
+    if (has_trend_intent and (has_leverage or has_cash_flow or has_profitability)) or (has_leverage and has_cash_flow):
+        lines = [
+            f"### Multi-Year Financial Trend Analysis: {company_name} ({symbol})",
+            f"**Reporting Currency:** {currency} (in Crores ₹ Cr for INR)",
+            "",
+            "| Period | Revenue | Net Income | Total Debt | Total Equity | D/E Ratio | Operating CF | Free Cash Flow |",
+            "| :--- | :---: | :---: | :---: | :---: | :---: | :---: | :---: |"
+        ]
+
+        sorted_annual = sorted(
+            [p for p in annual_periods if getattr(p, "fiscal_year", None)],
+            key=lambda p: getattr(p, "fiscal_year", 0)
+        )
+        if not sorted_annual and periods:
+            sorted_annual = sorted(periods, key=lambda p: getattr(p, "fiscal_year", 0) or 0)
+
+        for p in sorted_annual[-8:]:
+            m = p.metrics_json or {}
+            yr_label = p.fiscal_period or f"FY{p.fiscal_year}"
+            rev_str = format_currency_amount(m.get("revenue"), currency)
+            ni_str = format_currency_amount(m.get("net_income"), currency)
+            td = m.get("total_debt")
+            te = m.get("total_equity")
+            de_str = f"{td / te:.2f}x" if (td is not None and te and te > 0) else ("0.00x" if td == 0 else "N/A")
+            td_str = format_currency_amount(td, currency)
+            te_str = format_currency_amount(te, currency)
+            ocf_str = format_currency_amount(m.get("operating_cash_flow"), currency)
+            fcf_str = format_currency_amount(m.get("free_cash_flow"), currency)
+            lines.append(f"| **{yr_label}** | {rev_str} | {ni_str} | {td_str} | {te_str} | {de_str} | {ocf_str} | {fcf_str} |")
+
+        lines.append("")
+        lines.append("#### Key Institutional Trend Observations:")
+        if sorted_annual:
+            first_m = sorted_annual[0].metrics_json or {}
+            last_m = sorted_annual[-1].metrics_json or {}
+            f_de = (first_m.get("total_debt") / first_m.get("total_equity")) if (first_m.get("total_debt") is not None and first_m.get("total_equity") and first_m.get("total_equity") > 0) else None
+            l_de = (last_m.get("total_debt") / last_m.get("total_equity")) if (last_m.get("total_debt") is not None and last_m.get("total_equity") and last_m.get("total_equity") > 0) else None
+            f_fcf = first_m.get("free_cash_flow")
+            l_fcf = last_m.get("free_cash_flow")
+
+            first_lbl = sorted_annual[0].fiscal_period or f"FY{sorted_annual[0].fiscal_year}"
+            last_lbl = sorted_annual[-1].fiscal_period or f"FY{sorted_annual[-1].fiscal_year}"
+
+            if l_de is not None:
+                de_trend_desc = "virtually debt-free balance sheet" if l_de < 0.1 else ("conservative leverage" if l_de < 0.5 else "moderately leveraged")
+                f_de_str = f"{f_de:.2f}x" if f_de is not None else "N/A"
+                lines.append(f"- **Leverage Trajectory:** D/E stood at {f_de_str} in {first_lbl} vs {l_de:.2f}x in {last_lbl}, indicating {de_trend_desc}.")
+            if l_fcf is not None and f_fcf is not None:
+                fcf_dir = "expanded" if l_fcf > f_fcf else "contracted"
+                lines.append(f"- **Free Cash Flow:** FCF {fcf_dir} from {format_currency_amount(f_fcf, currency)} ({first_lbl}) to {format_currency_amount(l_fcf, currency)} ({last_lbl}).")
+
+        if risk_summary_text:
+            lines.extend([
+                "",
+                "#### Risk & Solvency Snapshot:",
+                risk_summary_text
+            ])
+
+        return "\n".join(lines)
+
     # 1. Valuation & DCF inquiries
     if any(k in q_lower for k in ("valuation", "dcf", "intrinsic", "fair value", "target", "upside", "downside", "multiple", "p/e", "pe ratio", "worth")):
         lines = [
@@ -262,11 +329,14 @@ def _build_deterministic_answer(
 
 
 def _get_genai_client() -> Optional[genai.Client]:
-    """Returns an authenticated Google GenAI Client if API key is present."""
+    """Returns an authenticated Google GenAI Client with 15s timeout if API key is present."""
     if not settings.GEMINI_API_KEY:
         return None
     try:
-        return genai.Client(api_key=settings.GEMINI_API_KEY)
+        return genai.Client(
+            api_key=settings.GEMINI_API_KEY,
+            http_options=types.HttpOptions(timeout=15000)
+        )
     except Exception as e:
         logger.error(f"Failed to initialize Google GenAI Client: {e}")
         return None
@@ -522,10 +592,10 @@ async def ask_company_question(
             continue
         periods.append(p)
 
-    # Compute grounded risk scorecard context
+    # Compute grounded risk scorecard context (skip duplicate AI call)
     risk_summary_text = ""
     try:
-        risk_obj = calculate_risk_intelligence(company, periods)
+        risk_obj = calculate_risk_intelligence(company, periods, skip_ai=True)
         p1 = risk_obj.pillars.get("leverage_liquidity", {})
         p2 = risk_obj.pillars.get("profitability_stability", {})
         p3 = risk_obj.pillars.get("valuation_stretch", {})
@@ -657,7 +727,7 @@ async def ask_company_question(
         f"ANALYST RESPONSE:"
     )
 
-    CANDIDATE_MODELS = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
+    CANDIDATE_MODELS = ["gemini-3.5-flash", "gemini-3.6-flash"]
     answer_text = ""
     active_model = "deterministic-research-analyst"
     ai_mode = "fallback"

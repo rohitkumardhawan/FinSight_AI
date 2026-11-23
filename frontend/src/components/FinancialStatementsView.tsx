@@ -146,19 +146,20 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     return (year || 0) * 10;
   };
 
+  const hasCoreData = (s: any) => Boolean(
+    (s.revenue !== null && s.revenue !== undefined) ||
+    (s.operating_income !== null && s.operating_income !== undefined) ||
+    (s.net_income !== null && s.net_income !== undefined) ||
+    (s.total_assets !== null && s.total_assets !== undefined) ||
+    (s.operating_cash_flow !== null && s.operating_cash_flow !== undefined)
+  );
+
   const filteredPeriods = useMemo(() => {
     const safeSelected = (selectedYears || []).map(extractYear).filter((y: any): y is number => y !== null);
 
     return periods
       .filter((s) => {
-        const hasCoreData = (
-          (s.revenue !== null && s.revenue !== undefined) ||
-          (s.operating_income !== null && s.operating_income !== undefined) ||
-          (s.net_income !== null && s.net_income !== undefined) ||
-          (s.total_assets !== null && s.total_assets !== undefined) ||
-          (s.operating_cash_flow !== null && s.operating_cash_flow !== undefined)
-        );
-        if (!hasCoreData) return false;
+        if (!hasCoreData(s)) return false;
 
         const isAnnual = isAnnualPeriod(s);
         if (periodFilter === 'annual') {
@@ -183,8 +184,8 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
   }, [periods, periodFilter, selectedYears]);
 
   // Calculate counts for Annual vs Quarterly periods via useMemo
-  const annualCount = useMemo(() => periods.filter(isAnnualPeriod).length, [periods]);
-  const quarterlyCount = useMemo(() => periods.filter((s) => !isAnnualPeriod(s)).length, [periods]);
+  const annualCount = useMemo(() => periods.filter((s) => isAnnualPeriod(s) && hasCoreData(s)).length, [periods]);
+  const quarterlyCount = useMemo(() => periods.filter((s) => !isAnnualPeriod(s) && hasCoreData(s)).length, [periods]);
 
   // Formula-injection sanitization for CSV export (CWE-1236 mitigation)
   const sanitizeCsvCell = (val: any): string => {

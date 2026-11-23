@@ -92,13 +92,13 @@ class RiskIntelligenceResponse(BaseModel):
 
 
 def _get_genai_client() -> Optional[genai.Client]:
-    """Returns an authenticated Google GenAI Client with 7s timeout if API key is present."""
+    """Returns an authenticated Google GenAI Client with 3.5s timeout if API key is present."""
     if not settings.GEMINI_API_KEY:
         return None
     try:
         return genai.Client(
             api_key=settings.GEMINI_API_KEY,
-            http_options=types.HttpOptions(timeout=7000)
+            http_options=types.HttpOptions(timeout=3500)
         )
     except Exception as e:
         logger.error(f"Failed to initialize Google GenAI Client in risk engine: {e}")
@@ -509,25 +509,26 @@ def _generate_watchpoints(
             )
 
             resp = client.models.generate_content(
-                model="gemini-3.8-flash",
+                model="gemini-3.5-flash",
                 contents=prompt
             )
 
-            lines = [ln.strip() for ln in (resp.text or "").split("\n") if "|" in ln]
-            parsed_wps: List[RiskWatchpoint] = []
-            for ln in lines:
-                parts = [p.strip() for p in ln.split("|")]
-                if len(parts) >= 4:
-                    cat, tit, desc, sev = parts[0], parts[1], parts[2], parts[3]
-                    sev_clean = sev if sev in ["Low", "Moderate", "Elevated", "High"] else overall_tier
-                    parsed_wps.append(RiskWatchpoint(
-                        category=cat,
-                        title=tit,
-                        description=desc,
-                        severity=sev_clean
-                    ))
-            if len(parsed_wps) == 3:
-                return parsed_wps
+            if resp and resp.text:
+                lines = [ln.strip() for ln in (resp.text or "").split("\n") if "|" in ln]
+                parsed_wps: List[RiskWatchpoint] = []
+                for ln in lines:
+                    parts = [p.strip() for p in ln.split("|")]
+                    if len(parts) >= 4:
+                        cat, tit, desc, sev = parts[0], parts[1], parts[2], parts[3]
+                        sev_clean = sev if sev in ["Low", "Moderate", "Elevated", "High"] else overall_tier
+                        parsed_wps.append(RiskWatchpoint(
+                            category=cat,
+                            title=tit,
+                            description=desc,
+                            severity=sev_clean
+                        ))
+                if len(parsed_wps) == 3:
+                    return parsed_wps
         except Exception as e:
             logger.warning(f"Gemini risk watchpoints generation failed: {e}. Using deterministic fallback.")
 

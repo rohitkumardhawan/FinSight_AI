@@ -76,6 +76,10 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [error, setError] = useState<string | null>(null);
 
+  const userInitiatedRef = React.useRef<{ a: string; b: string } | null>(null);
+  const requestIdRef = React.useRef<number>(0);
+  const metricCacheRef = React.useRef<Map<string, CompanyMetricSummary>>(new Map());
+
   // Search autocomplete for A
   useEffect(() => {
     let active = true;
@@ -133,6 +137,9 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
   // Helper to extract and normalize metrics from analysis + DCF payloads
   const fetchCompanyMetrics = async (sym: string): Promise<CompanyMetricSummary> => {
     const cleanSym = sym ? sym.trim().toUpperCase() : '';
+    if (metricCacheRef.current.has(cleanSym)) {
+      return metricCacheRef.current.get(cleanSym)!;
+    }
     
     // Fetch analysis and DCF in parallel
     const [analysisRes, dcfRes] = await Promise.allSettled([
@@ -191,7 +198,7 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
       dcfUpside = ((dcfIntrinsic - price) / price) * 100;
     }
 
-    return {
+    const summary: CompanyMetricSummary = {
       symbol: cleanSym,
       name: analysis.company_name || cleanSym,
       exchange: normalizeExchange(analysis.exchange, cleanSym),
@@ -208,9 +215,28 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
       dcfUpside,
       dcfIntrinsic
     };
+
+    metricCacheRef.current.set(cleanSym, summary);
+    return summary;
   };
 
   const loadComparison = async () => {
+    // If state already has the right data, avoid unnecessary fetch
+    if (dataA && dataB) {
+      if (dataA.symbol === symbolA && dataB.symbol === symbolB) {
+        setLoading(false);
+        return;
+      }
+      if (dataA.symbol === symbolB && dataB.symbol === symbolA) {
+        const oldA = dataA;
+        setDataA(dataB);
+        setDataB(oldA);
+        setLoading(false);
+        return;
+      }
+    }
+
+    const currentReq = ++requestIdRef.current;
     setLoading(true);
     setError(null);
     try {
@@ -218,43 +244,74 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
         fetchCompanyMetrics(symbolA),
         fetchCompanyMetrics(symbolB)
       ]);
-      setDataA(resA);
-      setDataB(resB);
+      if (requestIdRef.current === currentReq) {
+        setDataA(resA);
+        setDataB(resB);
+      }
     } catch (err: any) {
-      console.error('Comparison load error:', err);
-      setError(err.message || 'Failed to load side-by-side comparison data.');
+      if (requestIdRef.current === currentReq) {
+        console.error('Comparison load error:', err);
+        setError(err.message || 'Failed to load side-by-side comparison data.');
+      }
     } finally {
-      setLoading(false);
+      if (requestIdRef.current === currentReq) {
+        setLoading(false);
+      }
     }
   };
 
   useEffect(() => {
-    if (paramA && paramA.toUpperCase() !== symbolA.toUpperCase()) setSymbolA(paramA.toUpperCase());
-    if (paramB && paramB.toUpperCase() !== symbolB.toUpperCase()) setSymbolB(paramB.toUpperCase());
-  }, [paramA, paramB]);
+    const cleanParamA = (paramA || '').trim().toUpperCase();
+    const cleanParamB = (paramB || '').trim().toUpperCase();
+    const userInit = userInitiatedRef.current;
+
+    if (userInit) {
+      if (userInit.a === cleanParamA && userInit.b === cleanParamB) {
+        userInitiatedRef.current = null;
+      }
+      return;
+    }
+
+    if (cleanParamA && cleanParamA !== symbolA.toUpperCase()) setSymbolA(cleanParamA);
+    if (cleanParamB && cleanParamB !== symbolB.toUpperCase()) setSymbolB(cleanParamB);
+  }, [paramA, paramB, symbolA, symbolB]);
 
   useEffect(() => {
     loadComparison();
   }, [symbolA, symbolB]);
 
   const updateUrl = (newA: string, newB: string) => {
+    const cleanA = newA.trim().toUpperCase();
+    const cleanB = newB.trim().toUpperCase();
+    const query = `tab=compare&a=${encodeURIComponent(cleanA)}&b=${encodeURIComponent(cleanB)}`;
     if (typeof window !== 'undefined' && window.location.pathname.startsWith('/company/')) {
-      router.push(`/company/${encodeURIComponent(newA)}?tab=compare&a=${encodeURIComponent(newA)}&b=${encodeURIComponent(newB)}`);
+      router.replace(`/company/${encodeURIComponent(cleanA)}?${query}`, { scroll: false });
     } else {
-      router.push(`/compare?a=${encodeURIComponent(newA)}&b=${encodeURIComponent(newB)}`);
+      router.replace(`/compare?a=${encodeURIComponent(cleanA)}&b=${encodeURIComponent(cleanB)}`, { scroll: false });
     }
   };
 
   const handleSwap = () => {
-    const temp = symbolA;
-    setSymbolA(symbolB);
-    setSymbolB(temp);
-    updateUrl(symbolB, temp);
+    const nextA = symbolB;
+    const nextB = symbolA;
+    userInitiatedRef.current = { a: nextA.toUpperCase(), b: nextB.toUpperCase() };
+
+    // Instant in-memory swap with 0 latency
+    if (dataA && dataB) {
+      const oldA = dataA;
+      const oldB = dataB;
+      setDataA(oldB);
+      setDataB(oldA);
+    }
+    setSymbolA(nextA);
+    setSymbolB(nextB);
+    updateUrl(nextA, nextB);
   };
 
   const handleSelectA = (sym: string) => {
     const clean = sym.trim().toUpperCase();
     if (!clean) return;
+    userInitiatedRef.current = { a: clean, b: symbolB.toUpperCase() };
     setSymbolA(clean);
     setSearchQueryA('');
     setSearchResultsA([]);
@@ -264,6 +321,7 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
   const handleSelectB = (sym: string) => {
     const clean = sym.trim().toUpperCase();
     if (!clean) return;
+    userInitiatedRef.current = { a: symbolA.toUpperCase(), b: clean };
     setSymbolB(clean);
     setSearchQueryB('');
     setSearchResultsB([]);

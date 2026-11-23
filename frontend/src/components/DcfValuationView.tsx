@@ -86,11 +86,22 @@ export const DcfValuationView: React.FC<DcfValuationViewProps> = ({
 
   const initialLoadedRef = useRef<boolean>(false);
   const lastPayloadRef = useRef<string>('');
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   const sym = ticker || 'ASIANPAINT.NS';
 
   // 1. Initial Load of Auto-seeded Defaults
   const loadDcfData = async (customPayload?: Record<string, any>) => {
+    if (abortControllerRef.current) {
+      abortControllerRef.current.abort();
+    }
+    const controller = new AbortController();
+    abortControllerRef.current = controller;
+
+    const timeoutId = setTimeout(() => {
+      controller.abort();
+    }, 20000);
+
     if (customPayload) {
       setCalculating(true);
     } else {
@@ -103,6 +114,7 @@ export const DcfValuationView: React.FC<DcfValuationViewProps> = ({
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(customPayload || {}),
+        signal: controller.signal,
       });
 
       if (!res.ok) {
@@ -132,10 +144,19 @@ export const DcfValuationView: React.FC<DcfValuationViewProps> = ({
       });
       initialLoadedRef.current = true;
     } catch (err: any) {
+      if (err.name === 'AbortError') {
+        if (abortControllerRef.current === controller) {
+          setError('Valuation engine request timed out (20s). Click retry to recalculate.');
+        }
+        return;
+      }
       setError(err.message || 'Failed to calculate DCF model');
     } finally {
-      setLoading(false);
-      setCalculating(false);
+      clearTimeout(timeoutId);
+      if (abortControllerRef.current === controller) {
+        setLoading(false);
+        setCalculating(false);
+      }
     }
   };
 
@@ -143,6 +164,10 @@ export const DcfValuationView: React.FC<DcfValuationViewProps> = ({
     initialLoadedRef.current = false;
     lastPayloadRef.current = '';
     loadDcfData();
+
+    return () => {
+      abortControllerRef.current?.abort();
+    };
   }, [sym]);
 
   // Validation

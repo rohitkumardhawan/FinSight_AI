@@ -18,6 +18,7 @@ from app.schemas.statement import FinancialStatementCreate, FinancialStatementRe
 from app.schemas.ratio import FinancialRatioCreate, FinancialRatioResponse
 from app.schemas.dataset import AskQuestionRequest, AskQuestionResponse
 from app.financial.metrics import calculate_all_ratios, calculate_net_debt, calculate_ev_to_ebitda
+from app.core.sanitizer import sanitize_floats
 from app.services.ticker_search import search_tickers
 from app.services.auto_fetcher import fetch_company_data
 from app.services.rag_service import index_company_chunks, ask_company_question
@@ -161,7 +162,15 @@ def get_or_fetch_company_analysis(
         age_seconds = (now_utc - last_sync).total_seconds()
         
         if age_seconds < 24 * 3600 and "auto_insights" in company.metadata_json:
-            periods_list = [p.metrics_json for p in company.periods if p.metrics_json]
+            def _is_valid_p(pj: dict) -> bool:
+                if pj.get("statement_type") != "quarterly":
+                    return True
+                return any(
+                    pj.get(k) is not None
+                    for k in ["revenue", "operating_income", "net_income", "operating_cash_flow"]
+                )
+
+            periods_list = [p.metrics_json for p in company.periods if p.metrics_json and _is_valid_p(p.metrics_json)]
             if periods_list:
                 # Auto-backfill 10Y Screener data for Indian cached equities if missing (<6 annual periods)
                 cached_meta = company.metadata_json or {}
@@ -427,7 +436,7 @@ def get_or_fetch_company_analysis(
                     except Exception as err:
                         logger.debug(f"Failed to refresh cached trends: {err}")
 
-                return {
+                return sanitize_floats({
                     "company_id": company.id,
                     "symbol": company.symbol or company.ticker,
                     "company_name": company.company_name,
@@ -441,7 +450,7 @@ def get_or_fetch_company_analysis(
                     "trends": trends_data,
                     "scenarios": cached_scenarios,
                     "auto_insights": cached_insights
-                }
+                })
 
     # 3. Auto-fetch live financials
     try:
@@ -531,7 +540,7 @@ def get_or_fetch_company_analysis(
         except Exception:
             pass
 
-    return {
+    return sanitize_floats({
         "company_id": company.id,
         "symbol": company.symbol,
         "company_name": company.company_name,
@@ -541,11 +550,11 @@ def get_or_fetch_company_analysis(
         "last_synced_at": company.last_synced_at.isoformat() if company.last_synced_at else None,
         "is_cached": False,
         "quote": parsed.raw_metadata,
-        "periods": [p.model_dump() for p in parsed.periods],
+        "periods": [p.model_dump() for p in parsed.periods if p.statement_type != "quarterly" or (p.revenue is not None or p.operating_income is not None or p.net_income is not None or p.operating_cash_flow is not None)],
         "trends": parsed.trends,
         "scenarios": parsed.scenarios,
         "auto_insights": parsed.auto_insights
-    }
+    })
 
 @router.get("/{symbol}/peers")
 def get_company_sector_peers(
@@ -617,14 +626,19 @@ async def ask_company_rag_question(
 def _resolve_company_and_periods(symbol: str, db: Session) -> tuple[Company, List[FinancialPeriod]]:
     """Helper to locate or auto-fetch company and its financial periods."""
     symbol_clean = symbol.strip().upper()
-    company = db.execute(
-        select(Company).where(
-            or_(
-                func.upper(Company.symbol) == symbol_clean,
-                func.upper(Company.ticker) == symbol_clean
+    company = None
+    if symbol.strip().isdigit():
+        company = db.get(Company, int(symbol.strip()))
+
+    if not company:
+        company = db.execute(
+            select(Company).where(
+                or_(
+                    func.upper(Company.symbol) == symbol_clean,
+                    func.upper(Company.ticker) == symbol_clean
+                )
             )
-        )
-    ).scalars().first()
+        ).scalars().first()
 
     if not company:
         try:
@@ -718,15 +732,35 @@ def calculate_company_dcf(
     - Generates 5x5 Sensitivity Matrix (WACC vs Terminal Growth)
     - Enforces wacc > terminal_growth + 0.01 (HTTP 422 if violated)
     """
-    company, periods = _resolve_company_and_periods(symbol, db)
-    return calculate_dcf(company, periods, req)
+    try:
+        company, periods = _resolve_company_and_periods(symbol, db)
+        res = calculate_dcf(company, periods, req)
+        return sanitize_floats(res)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error computing DCF for {symbol}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"DCF valuation calculation error: {str(e)}"
+        )
 
 
 @router.get("/{symbol}/dcf", response_model=DCFResponse)
 def get_company_default_dcf(symbol: str, db: Session = Depends(get_db)):
     """Convenience GET endpoint to compute DCF with auto-seeded defaults."""
-    company, periods = _resolve_company_and_periods(symbol, db)
-    return calculate_dcf(company, periods, None)
+    try:
+        company, periods = _resolve_company_and_periods(symbol, db)
+        res = calculate_dcf(company, periods, None)
+        return sanitize_floats(res)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error computing default DCF for {symbol}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"DCF valuation calculation error: {str(e)}"
+        )
 
 
 @router.get("/{symbol}/risk", response_model=RiskIntelligenceResponse)
@@ -737,10 +771,20 @@ def get_company_risk_intelligence(symbol: str, db: Session = Depends(get_db)):
     - Profitability & Margin Stability (OPM Std Dev, YoY Revenue & Margin Contraction)
     - Valuation Stretch (P/E Multiple vs Historical Average, DCF Downside)
     - Earnings Quality (FCF / Net Income conversion, <0.70 warning)
-    - 3 Grounded Gemini 3.8 Flash watchpoints (with deterministic fallback)
+    - 3 Grounded Gemini watchpoints (with deterministic fallback)
     """
-    company, periods = _resolve_company_and_periods(symbol, db)
-    return calculate_risk_intelligence(company, periods)
+    try:
+        company, periods = _resolve_company_and_periods(symbol, db)
+        res = calculate_risk_intelligence(company, periods)
+        return sanitize_floats(res)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Error computing risk intelligence for {symbol}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Risk intelligence calculation error: {str(e)}"
+        )
 
 
 @router.get("/{symbol}/report/preview")
@@ -986,54 +1030,106 @@ def create_company_statement(
 # Financial Ratios Sub-Resource
 # -------------------------------------------------------------
 
-@router.get("/{company_id}/ratios", response_model=List[FinancialRatioResponse])
-def get_company_ratios(company_id: int, db: Session = Depends(get_db)):
-    """Get calculated financial ratios for a company."""
-    company = db.get(Company, company_id)
+@router.get("/{identifier}/ratios")
+def get_company_ratios(identifier: str, db: Session = Depends(get_db)):
+    """Get calculated financial ratios for a company by integer ID or symbol."""
+    company = None
+    if identifier.isdigit():
+        company = db.get(Company, int(identifier))
+    if not company:
+        try:
+            company, _ = _resolve_company_and_periods(identifier, db)
+        except Exception:
+            pass
+
     if not company:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Company with ID {company_id} not found."
+            detail=f"Company with identifier '{identifier}' not found."
         )
 
+    # 1. Query database FinancialRatio table
     query = (
         select(FinancialRatio)
-        .where(FinancialRatio.company_id == company_id)
+        .where(FinancialRatio.company_id == company.id)
         .order_by(FinancialRatio.fiscal_year.desc(), FinancialRatio.fiscal_period.desc())
     )
-    return db.execute(query).scalars().all()
+    db_ratios = db.execute(query).scalars().all()
+    if db_ratios:
+        return sanitize_floats([
+            {
+                "id": r.id,
+                "company_id": r.company_id,
+                "fiscal_year": r.fiscal_year,
+                "fiscal_period": r.fiscal_period,
+                "gross_margin": float(r.gross_margin) if r.gross_margin is not None else None,
+                "operating_margin": float(r.operating_margin) if r.operating_margin is not None else None,
+                "net_profit_margin": float(r.net_profit_margin) if r.net_profit_margin is not None else None,
+                "current_ratio": float(r.current_ratio) if r.current_ratio is not None else None,
+                "quick_ratio": float(r.quick_ratio) if r.quick_ratio is not None else None,
+                "debt_to_equity": float(r.debt_to_equity) if r.debt_to_equity is not None else None,
+                "return_on_equity": float(r.return_on_equity) if r.return_on_equity is not None else None,
+                "return_on_assets": float(r.return_on_assets) if r.return_on_assets is not None else None,
+                "pe_ratio": float(r.pe_ratio) if r.pe_ratio is not None else None,
+                "ev_to_ebitda": float(r.ev_to_ebitda) if r.ev_to_ebitda is not None else None,
+                "source": r.source
+            }
+            for r in db_ratios
+        ])
 
-@router.post("/{company_id}/ratios", response_model=FinancialRatioResponse, status_code=status.HTTP_201_CREATED)
+    # 2. If FinancialRatio table has no rows, compute deterministically from company.periods
+    computed_ratios = []
+    for p in (company.periods or []):
+        mj = p.metrics_json or {}
+        if not mj:
+            continue
+        ratios = calculate_all_ratios(mj)
+        computed_ratios.append({
+            "id": p.id,
+            "company_id": company.id,
+            "fiscal_year": p.fiscal_year,
+            "fiscal_period": p.fiscal_period,
+            "gross_margin": ratios.get("gross_margin"),
+            "operating_margin": ratios.get("operating_margin"),
+            "net_profit_margin": ratios.get("net_profit_margin"),
+            "current_ratio": ratios.get("current_ratio"),
+            "quick_ratio": ratios.get("quick_ratio"),
+            "debt_to_equity": ratios.get("debt_to_equity"),
+            "return_on_equity": ratios.get("return_on_equity"),
+            "return_on_assets": ratios.get("return_on_assets"),
+            "pe_ratio": mj.get("pe_ratio"),
+            "ev_to_ebitda": mj.get("ev_to_ebitda"),
+            "fcf_yield_pct": mj.get("fcf_yield_pct"),
+            "price_to_sales": mj.get("price_to_sales"),
+            "price_to_book": mj.get("price_to_book"),
+            "source": "Deterministic Pure-Python Engine"
+        })
+
+    computed_ratios.sort(
+        key=lambda r: (r.get("fiscal_year") or 0, r.get("fiscal_period") or ""),
+        reverse=True
+    )
+    return sanitize_floats(computed_ratios)
+
+@router.post("/{identifier}/ratios", response_model=FinancialRatioResponse, status_code=status.HTTP_201_CREATED)
 def create_company_ratio(
-    company_id: int,
+    identifier: str,
     ratio_in: FinancialRatioCreate,
     db: Session = Depends(get_db)
 ):
     """Add or update financial ratios for a company (upsert)."""
-    company = db.get(Company, company_id)
+    company = None
+    if identifier.isdigit():
+        company = db.get(Company, int(identifier))
+    if not company:
+        company, _ = _resolve_company_and_periods(identifier, db)
     if not company:
         raise HTTPException(
             status_code=status.HTTP_404_NOT_FOUND,
-            detail=f"Company with ID {company_id} not found."
+            detail=f"Company with identifier '{identifier}' not found."
         )
 
-    existing_ratio = db.execute(
-        select(FinancialRatio).where(
-            FinancialRatio.company_id == company_id,
-            FinancialRatio.fiscal_year == ratio_in.fiscal_year,
-            FinancialRatio.fiscal_period == ratio_in.fiscal_period
-        )
-    ).scalar_one_or_none()
-
-    if existing_ratio:
-        for k, v in ratio_in.model_dump().items():
-            setattr(existing_ratio, k, v)
-        db.commit()
-        db.refresh(existing_ratio)
-        return existing_ratio
-
-    ratio_data = ratio_in.model_dump()
-    ratio_data["company_id"] = company_id
+    company_id = company.id
     ratio = FinancialRatio(**ratio_data)
     db.add(ratio)
     db.commit()
