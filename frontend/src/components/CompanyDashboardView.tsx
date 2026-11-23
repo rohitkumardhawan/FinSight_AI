@@ -409,11 +409,20 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
     if (!userPrompt) setQuestion('');
     setAsking(true);
 
+    const historyPayload = chatHistory.slice(-8).map((m) => ({
+      role: m.role,
+      content: m.content,
+    }));
+
     try {
       const res = await fetch(`${API_BASE}/companies/${data.company_id}/ask`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ dataset_id: data.company_id, question: qText })
+        body: JSON.stringify({
+          dataset_id: data.company_id,
+          question: qText,
+          history: historyPayload
+        })
       });
 
       if (!res.ok) {
@@ -1319,9 +1328,19 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                   <span className="font-bold text-[10px] uppercase font-mono tracking-wider text-gold-400">
                     {msg.role === 'user' ? 'Analyst Inquiry' : 'Institutional Synthesis'}
                   </span>
-                  <span className="text-[9px] text-slate-500 font-mono">
-                    {msg.role === 'user' ? 'Prompt' : (msg.ai_mode === 'live' ? `${msg.model || 'Gemini Flash'} · Live AI` : 'Deterministic Synthesis')}
-                  </span>
+                  {msg.role === 'user' ? (
+                    <span className="text-[9px] text-slate-500 font-mono">Prompt</span>
+                  ) : msg.ai_mode === 'live' ? (
+                    <span className="inline-flex items-center gap-1 text-[9px] text-emerald-400 bg-emerald-950/40 border border-emerald-500/20 px-2 py-0.5 rounded-full font-mono">
+                      <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                      Live Gemini ({msg.model || 'Gemini'})
+                    </span>
+                  ) : (
+                    <span className="inline-flex items-center gap-1 text-[9px] text-amber-400 bg-amber-950/40 border border-amber-500/20 px-2 py-0.5 rounded-full font-mono">
+                      <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                      Offline Fallback (Verified SQL)
+                    </span>
+                  )}
                 </div>
                 {renderFormattedMessage(msg.content, msg.role === 'user')}
 
@@ -2405,9 +2424,19 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                 <span className="font-semibold text-[10px] uppercase text-sky-400 font-mono">
                   {msg.role === 'user' ? 'Analyst Inquiry' : 'Institutional Synthesis'}
                 </span>
-                <span className="text-[9px] text-slate-500 font-mono">
-                  {msg.role === 'user' ? 'Prompt' : (msg.ai_mode === 'live' ? `${msg.model || 'Gemini Flash'} · Live AI` : 'Deterministic Synthesis')}
-                </span>
+                {msg.role === 'user' ? (
+                  <span className="text-[9px] text-slate-500 font-mono">Prompt</span>
+                ) : msg.ai_mode === 'live' ? (
+                  <span className="inline-flex items-center gap-1 text-[9px] text-emerald-400 bg-emerald-950/40 border border-emerald-500/20 px-2 py-0.5 rounded-full font-mono">
+                    <span className="h-1.5 w-1.5 rounded-full bg-emerald-400 animate-pulse" />
+                    Live Gemini ({msg.model || 'Gemini'})
+                  </span>
+                ) : (
+                  <span className="inline-flex items-center gap-1 text-[9px] text-amber-400 bg-amber-950/40 border border-amber-500/20 px-2 py-0.5 rounded-full font-mono">
+                    <span className="h-1.5 w-1.5 rounded-full bg-amber-400" />
+                    Offline Fallback (Verified SQL)
+                  </span>
+                )}
               </div>
               {renderFormattedMessage(msg.content, msg.role === 'user')}
 

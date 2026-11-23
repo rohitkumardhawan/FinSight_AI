@@ -126,6 +126,7 @@ class AskQuestionRequest(BaseModel):
     """Payload for RAG question answering."""
     dataset_id: Optional[int] = None
     question: str
+    history: Optional[List[Dict[str, Any]]] = Field(default_factory=list)
 
 
 class CitationItem(BaseModel):

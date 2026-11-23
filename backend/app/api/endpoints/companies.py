@@ -113,6 +113,18 @@ def get_or_fetch_company_analysis(
 
     # 2. Check 24-hour cache validity
     if company and not refresh and company.last_synced_at and company.metadata_json:
+        # Check if currency mismatch fix is needed for cached row (e.g. INFY.NS or ADRs)
+        quote_meta = company.metadata_json.get("quote", {})
+        fin_curr = quote_meta.get("financial_currency") or quote_meta.get("financialCurrency")
+        curr = company.currency or quote_meta.get("currency")
+        is_mismatch_uncached = (
+            (fin_curr and curr and fin_curr.upper() != curr.upper() and not quote_meta.get("fx_converted_from"))
+            or (symbol_clean == "INFY.NS" and not quote_meta.get("fx_converted_from"))
+        )
+        if is_mismatch_uncached:
+            company = None
+
+    if company and not refresh and company.last_synced_at and company.metadata_json:
         # Check cache age
         last_sync = company.last_synced_at
         if last_sync.tzinfo is None:
@@ -510,7 +522,7 @@ async def ask_company_rag_question(
     else:
         comp, _ = _resolve_company_and_periods(company_id, db)
         target_id = comp.id
-    return await ask_company_question(db, target_id, req.question)
+    return await ask_company_question(db, target_id, req.question, history=req.history)
 
 
 def _resolve_company_and_periods(symbol: str, db: Session) -> tuple[Company, List[FinancialPeriod]]:

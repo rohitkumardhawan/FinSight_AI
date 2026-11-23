@@ -12,7 +12,7 @@ from datetime import datetime, timezone
 import logging
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form, status, Query, Request
 from sqlalchemy.orm import Session
-from sqlalchemy import select, desc
+from sqlalchemy import select, desc, or_, func
 from app.core.limiter import limiter
 
 from app.db.session import get_db
@@ -94,8 +94,15 @@ async def upload_financial_csv(
     now_utc = datetime.now(timezone.utc)
     clean_sym = "".join(c for c in parsed.company_name.upper() if c.isalnum())[:10] or "CUSTOM"
     company = db.execute(
-        select(Company).where(Company.company_name == parsed.company_name)
-    ).scalar_one_or_none()
+        select(Company).where(
+            or_(
+                func.upper(Company.company_name) == parsed.company_name.upper(),
+                func.upper(Company.symbol) == clean_sym,
+                func.upper(Company.symbol) == f"{clean_sym}.NS",
+                func.upper(Company.ticker) == clean_sym
+            )
+        )
+    ).scalars().first()
 
     if not company:
         company = Company(
@@ -127,20 +134,63 @@ async def upload_financial_csv(
         }
         db.commit()
 
-    # 5. Persist Financial Periods
-    # Delete old periods for this company
-    db.query(FinancialPeriod).filter(FinancialPeriod.company_id == company.id).delete()
+    # 5. Persist Financial Periods with 10Y History Merge
+    # For existing companies, retain live Yahoo periods (FY2023-FY2026 and quarterly)
+    # and merge historical periods (FY2017-FY2022) without overwriting verified live data
+    existing_fps = db.query(FinancialPeriod).filter(FinancialPeriod.company_id == company.id).all() if company.id else []
+    existing_periods_map = {fp.fiscal_period: fp for fp in existing_fps if fp.fiscal_period}
+
+    if not existing_fps:
+        for p in parsed.periods:
+            fp = FinancialPeriod(
+                company_id=company.id,
+                fiscal_year=p.fiscal_year,
+                fiscal_period=p.fiscal_period,
+                statement_type=p.statement_type,
+                metrics_json=p.model_dump()
+            )
+            db.add(fp)
+    else:
+        for p in parsed.periods:
+            if p.fiscal_period in existing_periods_map:
+                existing_fp = existing_periods_map[p.fiscal_period]
+                # If existing is already a verified live FY2023+ period, do not overwrite
+                if existing_fp.fiscal_year and existing_fp.fiscal_year >= 2023 and existing_fp.statement_type != "quarterly":
+                    continue
+                existing_fp.metrics_json = p.model_dump()
+            else:
+                fp = FinancialPeriod(
+                    company_id=company.id,
+                    fiscal_year=p.fiscal_year,
+                    fiscal_period=p.fiscal_period,
+                    statement_type=p.statement_type,
+                    metrics_json=p.model_dump()
+                )
+                db.add(fp)
     db.commit()
 
-    for p in parsed.periods:
-        fp = FinancialPeriod(
-            company_id=company.id,
-            fiscal_year=p.fiscal_year,
-            fiscal_period=p.fiscal_period,
-            statement_type=p.statement_type,
-            metrics_json=p.model_dump()
+    # Re-fetch all merged periods and synchronize 10Y insights
+    all_fps = db.query(FinancialPeriod).filter(FinancialPeriod.company_id == company.id).all()
+    all_period_dicts = [fp.metrics_json for fp in all_fps if fp.metrics_json]
+    try:
+        combined_records = [FinancialPeriodRecord(**pj) for pj in all_period_dicts]
+        combined_records.sort(key=lambda x: x.fiscal_year or 0)
+        ds_combined = ParsedCompanyDataset(
+            company_name=company.company_name,
+            filename=file.filename,
+            detected_format=parsed.detected_format,
+            periods=combined_records,
+            raw_metadata=(company.metadata_json or {}).get("raw_metadata") or (company.metadata_json or {}).get("quote") or {}
         )
-        db.add(fp)
+        fresh_insights = generate_auto_insights(ds_combined)
+        meta = dict(company.metadata_json or {})
+        meta["trends"] = fresh_insights.get("trends")
+        meta["scenarios"] = fresh_insights.get("scenario_insights")
+        meta["auto_insights"] = fresh_insights
+        company.metadata_json = meta
+        db.commit()
+    except Exception as merge_insight_err:
+        logger.debug(f"Combined insight recalculation error: {merge_insight_err}")
 
     # Also persist UploadedDataset record for history
     uploaded_ds = UploadedDataset(
@@ -251,4 +301,4 @@ async def ask_dataset_question(
             detail=f"Dataset or Company with ID {req.dataset_id} not found."
         )
 
-    return await ask_company_question(db, company_id, req.question)
+    return await ask_company_question(db, company_id, req.question, history=req.history)

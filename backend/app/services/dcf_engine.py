@@ -189,13 +189,24 @@ def extract_shares_and_price(
     quote = metadata.get("quote") or {}
 
     # Current Price
-    price = quote.get("current_price") or latest_metrics.get("share_price")
+    price = quote.get("current_price") or metadata.get("current_price") or latest_metrics.get("share_price")
     current_price = float(price) if price and float(price) > 0 else 100.0
 
-    # Shares Outstanding
-    market_cap = quote.get("market_cap")
-    if market_cap and current_price > 0:
-        shares = float(market_cap) / current_price
+    # Market Cap (in trading currency)
+    market_cap = float(quote.get("market_cap") or metadata.get("market_cap") or 0.0)
+
+    # Direct Shares Outstanding
+    raw_shares = quote.get("shares_outstanding") or metadata.get("shares_outstanding") or quote.get("sharesOutstanding")
+    shares = float(raw_shares) if raw_shares and float(raw_shares) > 0 else 0.0
+
+    # Sanity check: if shares is available, verify (shares * current_price) matches market_cap within 5%
+    if shares > 0 and market_cap > 0 and current_price > 0:
+        implied_ratio = (shares * current_price) / market_cap
+        if abs(implied_ratio - 1.0) < 0.05:
+            return current_price, shares
+
+    if market_cap > 0 and current_price > 0:
+        shares = market_cap / current_price
         if shares > 0:
             return current_price, shares
 

@@ -69,6 +69,7 @@ export interface PeriodFilterBarProps {
   quarterlyCount?: number;
   className?: string;
   showSectionSwitcherOnly?: boolean;
+  onOpenImportCsv?: () => void;
 }
 
 export const PeriodFilterBar: React.FC<PeriodFilterBarProps> = ({
@@ -81,6 +82,7 @@ export const PeriodFilterBar: React.FC<PeriodFilterBarProps> = ({
   quarterlyCount,
   className = '',
   showSectionSwitcherOnly = false,
+  onOpenImportCsv,
 }) => {
   // Normalize selected and available years to strict 4-digit numbers
   const safeSelected = (selectedYears || []).map(extractYear).filter((y: any): y is number => y !== null);
@@ -336,6 +338,29 @@ export const PeriodFilterBar: React.FC<PeriodFilterBarProps> = ({
               );
             })}
           </div>
+
+          {/* Data Horizon Notice for NSE Stocks when selecting historical years < 2023 without live data */}
+          {safeSelected.some((y) => y < 2023 && !sortedAvailable.includes(y)) && (
+            <div className="flex items-center justify-between gap-3 p-2.5 rounded-xl bg-amber-500/10 border border-amber-500/20 text-[11px] text-amber-300 flex-wrap mt-2">
+              <div className="flex items-center gap-2">
+                <span className="flex-shrink-0 font-bold px-1.5 py-0.5 rounded bg-amber-500/20 text-amber-200 text-[10px] font-mono">
+                  DATA HORIZON
+                </span>
+                <p className="leading-relaxed">
+                  Yahoo Finance provides 4Y history for NSE stocks (FY2023–FY2026). Upload a 10Y Screener.in CSV via <span className="font-semibold text-white">Import CSV</span> to unlock FY2017–FY2022.
+                </p>
+              </div>
+              {onOpenImportCsv && (
+                <button
+                  type="button"
+                  onClick={onOpenImportCsv}
+                  className="px-2.5 py-1 rounded-lg bg-amber-500/20 hover:bg-amber-500/30 text-amber-200 border border-amber-500/30 font-medium text-[10px] transition-colors whitespace-nowrap"
+                >
+                  Import CSV
+                </button>
+              )}
+            </div>
+          )}
         </div>
       )}
 

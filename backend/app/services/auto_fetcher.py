@@ -48,7 +48,214 @@ COMMON_CIK_MAP: Dict[str, str] = {
     "JPM": "0000019617",
     "V": "0001403161",
     "WMT": "0000104169",
+    "JNJ": "0000200406",
+    "BRK-B": "0001067983",
+    "PG": "0000080424",
+    "UNH": "0000731766",
 }
+
+FALLBACK_FX_RATES: Dict[tuple[str, str], float] = {
+    ("USD", "INR"): 84.5,
+    ("INR", "USD"): 0.011834,
+    ("EUR", "USD"): 1.08,
+    ("USD", "EUR"): 0.9259,
+    ("GBP", "USD"): 1.28,
+    ("USD", "GBP"): 0.7812,
+    ("EUR", "INR"): 92.0,
+    ("GBP", "INR"): 107.0,
+    ("USD", "TWD"): 32.5,
+    ("TWD", "USD"): 0.0307,
+}
+
+
+def get_fx_rate(from_curr: str, to_curr: str) -> float:
+    """Fetches live FX rate from Yahoo Finance with fallback matrix."""
+    from_curr = (from_curr or "").strip().upper()
+    to_curr = (to_curr or "").strip().upper()
+    if not from_curr or not to_curr or from_curr == to_curr:
+        return 1.0
+
+    # 1. Try yfinance live pair
+    for pair in [f"{from_curr}{to_curr}=X", f"{from_curr}={to_curr}"]:
+        try:
+            t = yf.Ticker(pair)
+            px = getattr(t.fast_info, "last_price", None)
+            if not px:
+                try:
+                    px = t.fast_info.get("last_price")
+                except Exception:
+                    pass
+            if px and float(px) > 0:
+                return float(px)
+            hist = t.history(period="5d")
+            if hist is not None and not hist.empty:
+                val = float(hist["Close"].iloc[-1])
+                if val > 0:
+                    return val
+        except Exception:
+            pass
+
+    # 2. Try inverse pair
+    try:
+        t_rev = yf.Ticker(f"{to_curr}{from_curr}=X")
+        px_rev = getattr(t_rev.fast_info, "last_price", None)
+        if not px_rev:
+            try:
+                px_rev = t_rev.fast_info.get("last_price")
+            except Exception:
+                pass
+        if px_rev and float(px_rev) > 0:
+            return 1.0 / float(px_rev)
+    except Exception:
+        pass
+
+    # 3. Fallback table
+    if (from_curr, to_curr) in FALLBACK_FX_RATES:
+        return FALLBACK_FX_RATES[(from_curr, to_curr)]
+    if (to_curr, from_curr) in FALLBACK_FX_RATES:
+        return 1.0 / FALLBACK_FX_RATES[(to_curr, from_curr)]
+
+    return 1.0
+
+
+STATEMENT_MONETARY_FIELDS = [
+    "revenue", "cost_of_revenue", "gross_profit", "operating_expenses",
+    "operating_income", "other_income", "ebit", "depreciation_amortization",
+    "ebitda", "interest_expense", "profit_before_tax", "tax_expense",
+    "net_income", "eps", "total_assets", "current_assets",
+    "cash_and_equivalents", "receivables", "inventory", "other_current_assets",
+    "net_ppe", "investments", "other_non_current_assets", "non_current_assets",
+    "total_liabilities", "current_liabilities", "trade_payables", "total_debt",
+    "other_liabilities", "total_equity", "net_debt", "net_working_capital",
+    "invested_capital", "operating_cash_flow", "capital_expenditure",
+    "investing_cash_flow", "financing_cash_flow", "net_change_in_cash",
+    "free_cash_flow"
+]
+
+
+def get_sec_edgar_annual_periods(symbol: str, existing_years: set[int]) -> List[FinancialPeriodRecord]:
+    """
+    Backfills 10-K annual periods from SEC EDGAR facts for US stocks (2017–2026)
+    if not already present from Yahoo Finance.
+    """
+    if symbol.endswith((".NS", ".BO")):
+        return []
+
+    cik = COMMON_CIK_MAP.get(symbol.upper())
+    if not cik:
+        try:
+            headers = {"User-Agent": settings.SEC_USER_AGENT or "FinSightAI/1.0 (contact@finsight.local)"}
+            r = httpx.get("https://www.sec.gov/files/company_tickers.json", headers=headers, timeout=4.0)
+            if r.status_code == 200:
+                mapping = r.json()
+                for entry in mapping.values():
+                    if entry.get("ticker", "").upper() == symbol.upper():
+                        cik = str(entry.get("cik_str", "")).zfill(10)
+                        break
+        except Exception as e:
+            logger.debug(f"SEC CIK lookup error for {symbol}: {e}")
+
+    if not cik:
+        return []
+
+    try:
+        headers = {"User-Agent": settings.SEC_USER_AGENT or "FinSightAI/1.0 (contact@finsight.local)"}
+        url = f"https://data.sec.gov/api/xbrl/companyfacts/CIK{cik.zfill(10)}.json"
+        resp = httpx.get(url, headers=headers, timeout=5.0)
+        if resp.status_code != 200:
+            return []
+        data = resp.json()
+        gaap = data.get("facts", {}).get("us-gaap", {})
+        if not gaap:
+            return []
+
+        def _extract_metric_by_year(concept_names: List[str]) -> Dict[int, float]:
+            res: Dict[int, float] = {}
+            for name in concept_names:
+                concept = gaap.get(name, {})
+                units = concept.get("units", {}).get("USD", [])
+                if not units:
+                    units = concept.get("units", {}).get("shares", []) or concept.get("units", {}).get("pure", [])
+                for entry in units:
+                    if entry.get("form") == "10-K" and entry.get("fp") == "FY":
+                        fy = entry.get("fy")
+                        val = entry.get("val")
+                        if fy and val is not None and 2017 <= fy <= 2026:
+                            res[fy] = float(val)
+            return res
+
+        rev_map = _extract_metric_by_year(["Revenues", "RevenueFromContractWithCustomerExcludingAssessedTax", "SalesRevenueNet"])
+        cor_map = _extract_metric_by_year(["CostOfGoodsAndServicesSold", "CostOfRevenue"])
+        gp_map = _extract_metric_by_year(["GrossProfit"])
+        opinc_map = _extract_metric_by_year(["OperatingIncomeLoss"])
+        netinc_map = _extract_metric_by_year(["NetIncomeLoss"])
+        eps_map = _extract_metric_by_year(["EarningsPerShareDiluted", "EarningsPerShareBasic"])
+        assets_map = _extract_metric_by_year(["Assets"])
+        cur_assets_map = _extract_metric_by_year(["AssetsCurrent"])
+        cash_map = _extract_metric_by_year(["CashAndCashEquivalentsAtCarryingValue", "CashCashEquivalentsRestrictedCashAndRestrictedCashEquivalents"])
+        liab_map = _extract_metric_by_year(["Liabilities"])
+        cur_liab_map = _extract_metric_by_year(["LiabilitiesCurrent"])
+        equity_map = _extract_metric_by_year(["StockholdersEquity"])
+        ocf_map = _extract_metric_by_year(["NetCashProvidedByUsedInOperatingActivities"])
+        capex_map = _extract_metric_by_year(["PaymentsToAcquirePropertyPlantAndEquipment", "PaymentsToAcquireProductiveAssets"])
+
+        sec_years = sorted([y for y in rev_map.keys() if y not in existing_years and 2017 <= y <= 2026])
+        backfilled: List[FinancialPeriodRecord] = []
+
+        for yr in sec_years:
+            rev = rev_map.get(yr)
+            cor = cor_map.get(yr)
+            gp = gp_map.get(yr) or ((rev - cor) if (rev is not None and cor is not None) else None)
+            opinc = opinc_map.get(yr)
+            netinc = netinc_map.get(yr)
+            eps = eps_map.get(yr)
+            assets = assets_map.get(yr)
+            cur_assets = cur_assets_map.get(yr)
+            cash = cash_map.get(yr)
+            liab = liab_map.get(yr)
+            cur_liab = cur_liab_map.get(yr)
+            equity = equity_map.get(yr)
+            ocf = ocf_map.get(yr)
+            capex = abs(capex_map[yr]) if yr in capex_map else None
+            fcf = (ocf - capex) if (ocf is not None and capex is not None) else None
+            opm = round((opinc / rev) * 100, 2) if (opinc is not None and rev and rev > 0) else None
+            tot_debt = max(0.0, liab - cur_liab) if (liab is not None and cur_liab is not None) else None
+            net_debt = calculate_net_debt(tot_debt, cash)
+            nwc = (cur_assets - cur_liab) if (cur_assets is not None and cur_liab is not None) else None
+
+            rec = FinancialPeriodRecord(
+                fiscal_year=yr,
+                fiscal_period=f"FY{yr}",
+                statement_type="annual_combined",
+                revenue=rev,
+                cost_of_revenue=cor,
+                gross_profit=gp,
+                operating_income=opinc,
+                ebit=opinc,
+                net_income=netinc,
+                eps=eps,
+                opm_pct=opm,
+                total_assets=assets,
+                current_assets=cur_assets,
+                cash_and_equivalents=cash,
+                total_liabilities=liab,
+                current_liabilities=cur_liab,
+                total_equity=equity,
+                total_debt=tot_debt,
+                net_debt=net_debt,
+                net_working_capital=nwc,
+                operating_cash_flow=ocf,
+                capital_expenditure=capex,
+                free_cash_flow=fcf,
+                source=f"SEC EDGAR 10-K (CIK {cik})"
+            )
+            backfilled.append(rec)
+
+        logger.info(f"Backfilled {len(backfilled)} annual periods from SEC EDGAR for {symbol}")
+        return backfilled
+    except Exception as ex:
+        logger.warning(f"Failed to backfill SEC EDGAR facts for {symbol}: {ex}")
+        return []
 
 
 def _match_column(df: pd.DataFrame, col: Any) -> Optional[Any]:
@@ -158,6 +365,9 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
     if not currency:
         currency = "INR" if (clean_symbol.endswith(".NS") or clean_symbol.endswith(".BO")) else "USD"
 
+    trading_currency = currency.upper()
+    financial_currency = (info.get("financialCurrency") or trading_currency).upper()
+
     current_price = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose")
     if not current_price and fast_info:
         try:
@@ -172,6 +382,15 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
             market_cap = fast_info.market_cap
         except Exception:
             pass
+
+    shares_outstanding = info.get("sharesOutstanding")
+    if not shares_outstanding and fast_info:
+        try:
+            shares_outstanding = getattr(fast_info, "shares", None)
+        except Exception:
+            pass
+    if not shares_outstanding and market_cap and current_price and current_price > 0:
+        shares_outstanding = float(market_cap) / float(current_price)
 
     sector = info.get("sector")
     industry = info.get("industry")
@@ -555,11 +774,47 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
     except Exception as q_err:
         logger.warning(f"Failed to fetch quarterly statements for {clean_symbol}: {q_err}")
 
+    # 3c. Backfill US stocks missing annual periods from SEC EDGAR (2017–2026)
+    if not (clean_symbol.endswith(".NS") or clean_symbol.endswith(".BO")):
+        try:
+            existing_years = {p.fiscal_year for p in periods if p.statement_type != "quarterly" and p.fiscal_year}
+            sec_periods = get_sec_edgar_annual_periods(clean_symbol, existing_years)
+            if sec_periods:
+                annual_p = [p for p in periods if p.statement_type != "quarterly"] + sec_periods
+                annual_p.sort(key=lambda p: p.fiscal_year or 0)
+                quarterly_p = [p for p in periods if p.statement_type == "quarterly"]
+                periods = annual_p + quarterly_p
+        except Exception as sec_merge_err:
+            logger.debug(f"SEC EDGAR backfill error for {clean_symbol}: {sec_merge_err}")
+
+    # 3d. Universal Currency Mismatch Fix: Convert all statement monetary fields & EPS
+    # if financial_currency != trading_currency (e.g. INFY.NS where statements are in USD and trading in INR)
+    fx_rate_applied = 1.0
+    if financial_currency != trading_currency:
+        fx_rate = get_fx_rate(financial_currency, trading_currency)
+        fx_rate_applied = fx_rate
+        logger.info(
+            f"Universal currency conversion for {clean_symbol}: "
+            f"financial_currency={financial_currency} -> trading_currency={trading_currency}, "
+            f"fx_rate={fx_rate}"
+        )
+        for p in periods:
+            for field in STATEMENT_MONETARY_FIELDS:
+                val = getattr(p, field, None)
+                if val is not None and not pd.isna(val):
+                    converted = round(float(val) * fx_rate, 4 if field == "eps" else 2)
+                    setattr(p, field, converted)
+
     # 4. Construct ParsedCompanyDataset
     raw_metadata = {
         "symbol": clean_symbol,
         "exchange": raw_exchange,
-        "currency": currency,
+        "currency": trading_currency,
+        "trading_currency": trading_currency,
+        "financial_currency": financial_currency,
+        "fx_converted_from": financial_currency if financial_currency != trading_currency else None,
+        "fx_rate_applied": fx_rate_applied,
+        "shares_outstanding": shares_outstanding,
         "sector": sector,
         "industry": industry,
         "current_price": current_price,

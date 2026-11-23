@@ -229,28 +229,67 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
   };
 
   useEffect(() => {
+    if (paramA && paramA.toUpperCase() !== symbolA.toUpperCase()) setSymbolA(paramA.toUpperCase());
+    if (paramB && paramB.toUpperCase() !== symbolB.toUpperCase()) setSymbolB(paramB.toUpperCase());
+  }, [paramA, paramB]);
+
+  useEffect(() => {
     loadComparison();
   }, [symbolA, symbolB]);
+
+  const updateUrl = (newA: string, newB: string) => {
+    if (typeof window !== 'undefined' && window.location.pathname.startsWith('/company/')) {
+      router.push(`/company/${encodeURIComponent(newA)}?tab=compare&a=${encodeURIComponent(newA)}&b=${encodeURIComponent(newB)}`);
+    } else {
+      router.push(`/compare?a=${encodeURIComponent(newA)}&b=${encodeURIComponent(newB)}`);
+    }
+  };
 
   const handleSwap = () => {
     const temp = symbolA;
     setSymbolA(symbolB);
     setSymbolB(temp);
-    router.push(`/compare?a=${encodeURIComponent(symbolB)}&b=${encodeURIComponent(temp)}`);
+    updateUrl(symbolB, temp);
   };
 
   const handleSelectA = (sym: string) => {
-    setSymbolA(sym);
+    const clean = sym.trim().toUpperCase();
+    if (!clean) return;
+    setSymbolA(clean);
     setSearchQueryA('');
     setSearchResultsA([]);
-    router.push(`/compare?a=${encodeURIComponent(sym)}&b=${encodeURIComponent(symbolB)}`);
+    updateUrl(clean, symbolB);
   };
 
   const handleSelectB = (sym: string) => {
-    setSymbolB(sym);
+    const clean = sym.trim().toUpperCase();
+    if (!clean) return;
+    setSymbolB(clean);
     setSearchQueryB('');
     setSearchResultsB([]);
-    router.push(`/compare?a=${encodeURIComponent(symbolA)}&b=${encodeURIComponent(sym)}`);
+    updateUrl(symbolA, clean);
+  };
+
+  const handleKeyDownA = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (searchResultsA.length > 0) {
+        handleSelectA(searchResultsA[0].symbol);
+      } else if (searchQueryA.trim()) {
+        handleSelectA(searchQueryA);
+      }
+    }
+  };
+
+  const handleKeyDownB = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (searchResultsB.length > 0) {
+        handleSelectB(searchResultsB[0].symbol);
+      } else if (searchQueryB.trim()) {
+        handleSelectB(searchQueryB);
+      }
+    }
   };
 
   // Compare metric helper (returns 1 if A wins, -1 if B wins, 0 if tie/null)
@@ -338,6 +377,7 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
                 type="text"
                 value={searchQueryA}
                 onChange={(e) => setSearchQueryA(e.target.value)}
+                onKeyDown={handleKeyDownA}
                 placeholder={`Search or change (${symbolA})...`}
                 className="w-full bg-navy-950 border border-navy-750 focus:border-gold-500/50 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-colors"
               />
@@ -392,6 +432,7 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
                 type="text"
                 value={searchQueryB}
                 onChange={(e) => setSearchQueryB(e.target.value)}
+                onKeyDown={handleKeyDownB}
                 placeholder={`Search or change (${symbolB})...`}
                 className="w-full bg-navy-950 border border-navy-750 focus:border-gold-500/50 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-colors"
               />

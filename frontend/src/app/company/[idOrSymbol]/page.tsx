@@ -88,8 +88,8 @@ function CompanyDetailContent() {
             />
           ) : activeSection === 'compare' ? (
             <CompanyCompareView
-              initialA={symbol}
-              initialB="BERGEPAINT.NS"
+              initialA={searchParams?.get('a') || symbol}
+              initialB={searchParams?.get('b') || (symbol === 'ASIANPAINT.NS' ? 'BERGEPAINT.NS' : (symbol === 'TCS.NS' ? 'INFY.NS' : (symbol === 'INFY.NS' ? 'TCS.NS' : 'BERGEPAINT.NS')))}
               onSelectTicker={handleSelectTicker}
             />
           ) : activeSection === 'financial-statements' ? (

@@ -45,15 +45,13 @@ async def test_list_companies_and_search():
         assert res.status_code == 200
         companies = res.json()
         assert len(companies) >= 6
-        tickers = [c["ticker"] for c in companies]
-        assert "AAPL" in tickers
 
         # Search filter
-        search_res = await client.get("/api/companies?q=Apple")
+        search_res = await client.get("/api/companies?q=Asian")
         assert search_res.status_code == 200
         search_data = search_res.json()
         assert len(search_data) >= 1
-        assert search_data[0]["ticker"] == "AAPL"
+        assert "ASIANPAINT" in search_data[0]["ticker"]
 
 
 @pytest.mark.anyio

@@ -139,6 +139,128 @@ def _build_deterministic_executive_summary(
     return "\n".join(lines)
 
 
+def _build_deterministic_answer(
+    company: Company,
+    periods: List[FinancialPeriod],
+    currency: str,
+    question: str,
+    risk_summary_text: str = "",
+    dcf_summary_text: str = ""
+) -> str:
+    """Builds a formatted, question-aware research response when LLM is offline."""
+    q_lower = (question or "").lower()
+    symbol = company.symbol or company.ticker or ""
+    company_name = company.company_name or symbol
+
+    annual_periods = [
+        p for p in periods
+        if getattr(p, "statement_type", "") != "quarterly"
+        and (not getattr(p, "fiscal_period", "") or not getattr(p, "fiscal_period", "").startswith("Q"))
+    ]
+    latest_p = annual_periods[-1] if annual_periods else (periods[-1] if periods else None)
+    prev_p = annual_periods[-2] if len(annual_periods) >= 2 else None
+    m_latest = latest_p.metrics_json or {} if latest_p else {}
+    m_prev = prev_p.metrics_json or {} if prev_p else {}
+
+    # 1. Valuation & DCF inquiries
+    if any(k in q_lower for k in ("valuation", "dcf", "intrinsic", "fair value", "target", "upside", "downside", "multiple", "p/e", "pe ratio", "worth")):
+        lines = [
+            f"### Valuation & DCF Intelligence: {company_name} ({symbol})",
+            f"**Reporting Currency:** {currency} | **Latest Filing:** {latest_p.fiscal_period if latest_p else 'N/A'}",
+            ""
+        ]
+        if dcf_summary_text:
+            lines.extend([
+                "#### Discounted Cash Flow (DCF) Valuation Model",
+                dcf_summary_text,
+                ""
+            ])
+        quote = (company.metadata_json or {}).get("quote") or {}
+        pe = quote.get("trailing_pe") or quote.get("trailingPE") or m_latest.get("pe_ratio")
+        lines.extend([
+            "#### Market Multiples",
+            f"- **Current Share Price:** {currency} {quote.get('current_price') or m_latest.get('share_price') or 'N/A'}",
+            f"- **Trailing P/E Ratio:** {f'{float(pe):.2f}x' if pe else 'N/A'}",
+            f"- **Market Capitalization:** {format_currency_amount(quote.get('market_cap'), currency)}"
+        ])
+        return "\n".join(lines)
+
+    # 2. Risk, Leverage & Solvency inquiries
+    if any(k in q_lower for k in ("risk", "debt", "leverage", "liquidity", "coverage", "solvency", "safe", "default", "health")):
+        lines = [
+            f"### Institutional Risk & Solvency Assessment: {company_name} ({symbol})",
+            ""
+        ]
+        if risk_summary_text:
+            lines.extend([
+                "#### Verified 4-Pillar Risk Scorecard",
+                risk_summary_text,
+                ""
+            ])
+        tot_debt = m_latest.get("total_debt")
+        net_debt = m_latest.get("net_debt")
+        tot_eq = m_latest.get("total_equity")
+        ca = m_latest.get("current_assets")
+        cl = m_latest.get("current_liabilities")
+        lines.extend([
+            "#### Balance Sheet Leverage Details",
+            f"- **Total Outstanding Debt:** {format_currency_amount(tot_debt, currency)}",
+            f"- **Net Debt (Debt - Cash):** {format_currency_amount(net_debt, currency)}",
+            f"- **Debt-to-Equity (D/E):** {f'{tot_debt / tot_eq:.2f}x' if (tot_debt is not None and tot_eq and tot_eq > 0) else 'N/A'}",
+            f"- **Current Ratio:** {f'{ca / cl:.2f}x' if (ca is not None and cl and cl > 0) else 'N/A'}"
+        ])
+        return "\n".join(lines)
+
+    # 3. Margins & Profitability inquiries
+    if any(k in q_lower for k in ("margin", "profit", "ebitda", "growth", "revenue", "opm", "sales", "earnings")):
+        rev_now = m_latest.get("revenue")
+        rev_prev = m_prev.get("revenue")
+        g_str = "N/A"
+        if rev_now is not None and rev_prev and rev_prev > 0:
+            g = ((rev_now - rev_prev) / rev_prev) * 100.0
+            g_str = f"{'+' if g >= 0 else ''}{g:.2f}%"
+        op_inc = m_latest.get("operating_income")
+        ebitda = m_latest.get("ebitda")
+        opm = m_latest.get("opm_pct")
+        ebitda_m = m_latest.get("ebitda_margin_pct")
+        net_inc = m_latest.get("net_income")
+        eps = m_latest.get("eps")
+        lines = [
+            f"### Profitability & Operational Trajectory: {company_name} ({symbol})",
+            f"**Latest Fiscal Year:** {latest_p.fiscal_period if latest_p else 'N/A'} | **Currency:** {currency}",
+            "",
+            "#### Operational Waterfall & Margins",
+            f"- **Total Revenue:** {format_currency_amount(rev_now, currency)} (YoY Growth: {g_str})",
+            f"- **Operating Income (EBIT):** {format_currency_amount(op_inc, currency)} (OPM: {f'{opm:.2f}%' if opm is not None else 'N/A'})",
+            f"- **EBITDA:** {format_currency_amount(ebitda, currency)} (EBITDA Margin: {f'{ebitda_m:.2f}%' if ebitda_m is not None else 'N/A'})",
+            f"- **Net Income:** {format_currency_amount(net_inc, currency)} (Net Margin: {f'{(net_inc / rev_now) * 100:.2f}%' if (net_inc is not None and rev_now and rev_now > 0) else 'N/A'})",
+            f"- **Diluted EPS:** {format_per_share(eps, currency)}"
+        ]
+        return "\n".join(lines)
+
+    # 4. Cash Flow & Capital Allocation inquiries
+    if any(k in q_lower for k in ("cash", "fcf", "capex", "ocf", "capital expenditure", "free cash flow", "dividend")):
+        ocf = m_latest.get("operating_cash_flow")
+        capex = m_latest.get("capital_expenditure")
+        fcf = m_latest.get("free_cash_flow")
+        net_inc = m_latest.get("net_income")
+        fcf_ni = f"{fcf / net_inc:.2f}x" if (fcf is not None and net_inc and net_inc != 0) else "N/A"
+        lines = [
+            f"### Cash Flow & Capital Generation: {company_name} ({symbol})",
+            f"**Reporting Period:** {latest_p.fiscal_period if latest_p else 'N/A'} | **Currency:** {currency}",
+            "",
+            "#### Cash Flow Breakdown",
+            f"- **Operating Cash Flow (OCF):** {format_currency_amount(ocf, currency)}",
+            f"- **Capital Expenditures (CapEx):** {format_currency_amount(capex, currency)}",
+            f"- **Free Cash Flow (FCF):** {format_currency_amount(fcf, currency)}",
+            f"- **Cash Conversion (FCF / Net Profit):** {fcf_ni}"
+        ]
+        return "\n".join(lines)
+
+    # Default: Executive Summary
+    return _build_deterministic_executive_summary(company, periods, currency, risk_summary_text)
+
+
 def _get_genai_client() -> Optional[genai.Client]:
     """Returns an authenticated Google GenAI Client if API key is present."""
     if not settings.GEMINI_API_KEY:
@@ -325,7 +447,12 @@ def index_company_chunks(db: Session, company_id: int, parsed: ParsedCompanyData
     return inserted_count
 
 
-async def ask_company_question(db: Session, company_id: int, question: str) -> AskQuestionResponse:
+async def ask_company_question(
+    db: Session,
+    company_id: int,
+    question: str,
+    history: Optional[List[Dict[str, Any]]] = None
+) -> AskQuestionResponse:
     """
     Performs hybrid SQL + pgvector cosine similarity search, retrieves grounded
     financial facts, and synthesizes an institutional research answer with citations.
@@ -418,6 +545,28 @@ async def ask_company_question(db: Session, company_id: int, question: str) -> A
     except Exception as risk_err:
         logger.warning(f"Could not compute risk intelligence for context: {risk_err}")
 
+    # Compute grounded DCF valuation context
+    dcf_summary_text = ""
+    try:
+        from app.services.dcf_engine import calculate_dcf
+        dcf_res = calculate_dcf(company, periods)
+        dcf_summary_text = (
+            f"VERIFIED DCF VALUATION MODEL ({company_name} | {symbol}) [Currency: {currency}]:\n"
+            f"- Current Market Price: {currency} {dcf_res.current_price:,.2f}\n"
+            f"- DCF Intrinsic Value: {currency} {dcf_res.intrinsic_value:,.2f}\n"
+            f"- Intrinsic Upside / (Downside): {'+' if dcf_res.upside_downside_pct >= 0 else ''}{dcf_res.upside_downside_pct:.2f}%\n"
+            f"- Enterprise Value: {format_currency_amount(dcf_res.enterprise_value, currency)}\n"
+            f"- Equity Value: {format_currency_amount(dcf_res.equity_value, currency)}\n"
+            f"- Baseline FCF: {format_currency_amount(dcf_res.fcf_base, currency)}\n"
+            f"- Net Debt: {format_currency_amount(dcf_res.net_debt, currency)}\n"
+            f"- Modeled WACC: {dcf_res.wacc * 100:.2f}%\n"
+            f"- Terminal Growth Rate: {dcf_res.terminal_growth_rate * 100:.2f}%\n"
+            f"- Projected FCF Growth: {dcf_res.growth_rate * 100:.2f}%\n"
+            f"- Diluted Shares Outstanding: {dcf_res.shares_outstanding:,.0f}"
+        )
+    except Exception as dcf_err:
+        logger.warning(f"Could not compute DCF valuation context: {dcf_err}")
+
     sql_facts_lines = [f"VERIFIED FINANCIAL METRICS FROM DATABASE ({company_name} | {symbol}) [Currency: {currency}]:"]
     for p in periods:
         metrics = p.metrics_json or {}
@@ -454,6 +603,10 @@ async def ask_company_question(db: Session, company_id: int, question: str) -> A
         sql_facts_lines.append("")
         sql_facts_lines.append(risk_summary_text)
 
+    if dcf_summary_text:
+        sql_facts_lines.append("")
+        sql_facts_lines.append(dcf_summary_text)
+
     sql_facts_block = "\n".join(sql_facts_lines)
 
     # 4. Assemble context and citations
@@ -471,28 +624,42 @@ async def ask_company_question(db: Session, company_id: int, question: str) -> A
 
     combined_context = "\n---\n".join(context_blocks)
 
-    # 5. Synthesize answer with Gemini (gemini-3.8-flash with gemini-2.5-flash fallback)
+    # 5. Build conversation history block
+    history_lines = []
+    if history:
+        history_lines.append("CONVERSATION HISTORY:")
+        for h in history[-8:]:
+            role_name = "User" if h.get("role") == "user" else "Assistant"
+            content = (h.get("content") or "").strip()
+            if content:
+                snippet = content[:600] + ("..." if len(content) > 600 else "")
+                history_lines.append(f"{role_name}: {snippet}")
+        history_lines.append("")
+    history_block = "\n".join(history_lines) if history_lines else ""
+
+    # 6. Synthesize answer with Gemini (gemini-2.5-flash with gemini-2.0-flash fallback)
     system_instruction = (
         "You are an Institutional Equity Research Analyst for FinSight AI.\n"
-        "Your task is to answer user questions about company performance, valuation, cash flow, and risk.\n"
+        "Your task is to answer user inquiries about company performance, valuation, cash flow, debt/liquidity, risks, and projections.\n"
         "RULES:\n"
         "1. Ground your answer STRICTLY on the provided factual context and financial metrics.\n"
-        "2. Never invent or hallucinate figures. If numbers are not in the context, explicitly say they are not reported.\n"
-        "3. Always use the formatted currency figures (e.g. ₹ Cr for INR or $B/$M for USD) and metric ratios.\n"
-        "4. Explicitly cite the reporting periods or source references (e.g. '[ASIANPAINT.NS | FY2025 | Yahoo Finance]' or '[FY2026]').\n"
-        "5. Be direct, clear, and professional. Structure with concise bullet points where appropriate."
+        "2. Directly address the user's specific question (e.g. valuation, DCF assumptions, risks, cash flows, peers, what-if scenarios) without dumping a generic 5-section executive summary unless the user asked for a general overview.\n"
+        "3. Never invent or hallucinate figures. If numbers are not in the context, explicitly state they are not reported.\n"
+        "4. Always use the formatted currency figures (e.g. ₹ Cr for INR or $B/$M for USD) and metric ratios.\n"
+        "5. Structure with clear Markdown (concise bullet points, bold headers, and key ratios)."
     )
 
     prompt = (
         f"{system_instruction}\n\n"
         f"FACTUAL CONTEXT:\n{combined_context}\n\n"
+        f"{history_block}"
         f"USER QUESTION: {question}\n\n"
         f"ANALYST RESPONSE:"
     )
 
-    CANDIDATE_MODELS = ["gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
+    CANDIDATE_MODELS = ["gemini-3.8-flash", "gemini-2.5-flash", "gemini-2.0-flash", "gemini-flash-latest"]
     answer_text = ""
-    active_model = "deterministic-executive-summary"
+    active_model = "deterministic-research-analyst"
     ai_mode = "fallback"
 
     if client:
@@ -517,9 +684,16 @@ async def ask_company_question(db: Session, company_id: int, question: str) -> A
 
     if not answer_text:
         ai_mode = "fallback"
-        active_model = "deterministic-executive-summary"
-        logger.info("Using deterministic executive summary fallback.")
-        answer_text = _build_deterministic_executive_summary(company, periods, currency, risk_summary_text)
+        active_model = "deterministic-research-analyst"
+        logger.info("Using deterministic question-aware answer fallback.")
+        answer_text = _build_deterministic_answer(
+            company=company,
+            periods=periods,
+            currency=currency,
+            question=question,
+            risk_summary_text=risk_summary_text,
+            dcf_summary_text=dcf_summary_text
+        )
 
     return AskQuestionResponse(
         answer=answer_text,
