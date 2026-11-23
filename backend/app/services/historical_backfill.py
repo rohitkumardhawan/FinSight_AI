@@ -141,8 +141,15 @@ def fetch_screener_10y_periods(symbol: str) -> List[FinancialPeriodRecord]:
             exp_cr = d.get("expenses")
             op_exp = round(exp_cr * 1e7, 2) if exp_cr is not None else None
 
-            op_inc_cr = d.get("operating profit")
-            op_inc = round(op_inc_cr * 1e7, 2) if op_inc_cr is not None else None
+            # Screener's "Operating Profit" is EBITDA (before D&A).
+            # Subtracting Depreciation gives true EBIT / Operating Income.
+            op_prof_cr = d.get("operating profit")
+            depr_cr = d.get("depreciation")
+            depr = round(depr_cr * 1e7, 2) if depr_cr is not None else None
+
+            ebitda = round(op_prof_cr * 1e7, 2) if op_prof_cr is not None else None
+            op_inc = round((op_prof_cr - (depr_cr or 0.0)) * 1e7, 2) if op_prof_cr is not None else None
+            ebit = op_inc
 
             opm_pct = d.get("opm %")
 
@@ -151,9 +158,6 @@ def fetch_screener_10y_periods(symbol: str) -> List[FinancialPeriodRecord]:
 
             interest_cr = d.get("interest")
             interest = round(interest_cr * 1e7, 2) if interest_cr is not None else None
-
-            depr_cr = d.get("depreciation")
-            depr = round(depr_cr * 1e7, 2) if depr_cr is not None else None
 
             pbt_cr = d.get("profit before tax")
             pbt = round(pbt_cr * 1e7, 2) if pbt_cr is not None else None
@@ -201,25 +205,14 @@ def fetch_screener_10y_periods(symbol: str) -> List[FinancialPeriodRecord]:
             net_cf_cr = d.get("net cash flow")
             net_change_cash = round(net_cf_cr * 1e7, 2) if net_cf_cr is not None else None
 
+            # Free Cash Flow & CapEx exact reconciliation: OCF - CapEx == FCF
             fcf_cr = d.get("free cash flow")
-            fcf = round(fcf_cr * 1e7, 2) if fcf_cr is not None else None
-            capex = None
-            if cfi is not None:
-                capex = abs(cfi)
-            elif depr is not None:
-                capex = round(depr * 0.85, 2)
-
-            if fcf is None and cfo is not None and capex is not None:
-                fcf = round(cfo - capex, 2)
-
-            # EBITDA
-            ebitda = None
-            if op_inc is not None and depr is not None:
-                ebitda = round(op_inc + depr, 2)
-            elif op_inc is not None:
-                ebitda = op_inc
-
-            ebit = op_inc
+            if fcf_cr is not None:
+                fcf = round(fcf_cr * 1e7, 2)
+                capex = round(cfo - fcf, 2) if cfo is not None else None
+            else:
+                capex = round(abs(cfi), 2) if cfi is not None else (round(depr * 0.85, 2) if depr is not None else None)
+                fcf = round(cfo - capex, 2) if (cfo is not None and capex is not None) else None
 
             rec = FinancialPeriodRecord(
                 fiscal_year=yr,

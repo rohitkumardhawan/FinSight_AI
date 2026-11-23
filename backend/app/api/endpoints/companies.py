@@ -239,18 +239,39 @@ def get_or_fetch_company_analysis(
 
                 # Ensure EBITDA, Balance Sheet memo items, and Cash Flow metrics are populated for all cached periods
                 for p in periods_list:
-                    # Income Statement: reconcile Other Income / (Expense) dynamically on read
+                    # Income Statement: reconcile EBIT, Depreciation, Other Income, and PBT
                     pbt = p.get("profit_before_tax")
                     ebit = p.get("operating_income") if p.get("operating_income") is not None else p.get("ebit")
-                    interest = p.get("interest_expense")
-                    if p.get("other_income") is None and pbt is not None and ebit is not None:
-                        p["other_income"] = round(pbt - (ebit - abs(interest or 0.0)), 2)
+                    interest = abs(p.get("interest_expense") or 0.0)
+                    da = abs(p.get("depreciation_amortization") or 0.0)
+                    other_inc = p.get("other_income")
+
+                    # If ebit + other_inc - interest differs from pbt by approximately da,
+                    # ebit in the stored record was EBITDA before D&A. Subtract D&A to get true EBIT.
+                    if pbt is not None and ebit is not None and da > 0:
+                        cur_oth = other_inc if other_inc is not None else 0.0
+                        diff_raw = (ebit + cur_oth - interest) - pbt
+                        if abs(diff_raw - da) < 5.0 and abs(diff_raw) > 5.0:
+                            ebit = round(ebit - da, 2)
+                            p["operating_income"] = ebit
+                            p["ebit"] = ebit
+                            if p.get("ebitda") is None:
+                                p["ebitda"] = round(ebit + da, 2)
+
+                    # Reconcile Other Income so EBIT + Other Income - Interest == PBT is 100% exact
+                    if pbt is not None and ebit is not None:
+                        p["other_income"] = round(pbt - (ebit - interest), 2)
+
+                    # Cash Flow exact reconciliation: OCF - CapEx == FCF
+                    cfo = p.get("operating_cash_flow")
+                    capex = p.get("capital_expenditure")
+                    if cfo is not None and capex is not None:
+                        p["free_cash_flow"] = round(cfo - abs(capex), 2)
 
                     # EBITDA & EBITDA Margin %
                     rev = p.get("revenue")
                     if p.get("ebitda") is None:
                         op = p.get("operating_income") if p.get("operating_income") is not None else p.get("ebit")
-                        da = abs(p.get("depreciation_amortization") or 0.0)
                         if op is not None:
                             p["ebitda"] = round(op + da, 2)
                     if p.get("ebitda_margin_pct") is None and p.get("ebitda") is not None and rev and rev > 0:

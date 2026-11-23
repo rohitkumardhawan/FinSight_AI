@@ -145,7 +145,21 @@ def extract_fcf_and_debt(
 
     # 2. Free Cash Flow resolution
     fcf = latest_metrics.get("free_cash_flow")
-    if fcf is not None and float(fcf) > 0:
+    net_income = latest_metrics.get("net_income")
+
+    # Institutional normalization guard:
+    # If a company is highly profitable (net_income > 0), but the single-year raw FCF is
+    # anomalously depressed (FCF < 25% of Net Income) while Net Debt is significant
+    # (such that EV under depressed FCF would be wiped out by debt),
+    # normalize FCF to Owner Earnings (Net Income * 0.75).
+    is_fcf_anomalous = False
+    if net_income and float(net_income) > 0 and fcf is not None:
+        fcf_val = float(fcf)
+        ni_val = float(net_income)
+        if fcf_val <= 0 or (fcf_val < ni_val * 0.25 and net_debt > 0 and fcf_val * 15 < net_debt):
+            is_fcf_anomalous = True
+
+    if fcf is not None and float(fcf) > 0 and not is_fcf_anomalous:
         return float(fcf), False, total_debt, cash_equiv, net_debt
 
     # Try OCF - abs(capex)
@@ -153,13 +167,12 @@ def extract_fcf_and_debt(
     capex = latest_metrics.get("capital_expenditure")
     if ocf is not None and capex is not None:
         calc_fcf = float(ocf) - abs(float(capex))
-        if calc_fcf > 0:
+        if calc_fcf > 0 and (not net_income or calc_fcf >= float(net_income) * 0.25 or net_debt <= 0 or calc_fcf * 15 >= net_debt):
             return calc_fcf, False, total_debt, cash_equiv, net_debt
 
-    # Fallback to net_income * 0.8
-    net_income = latest_metrics.get("net_income")
+    # Fallback to net_income * 0.75 (normalized owner earnings)
     if net_income is not None and float(net_income) > 0:
-        return float(net_income) * 0.8, True, total_debt, cash_equiv, net_debt
+        return float(net_income) * 0.75, True, total_debt, cash_equiv, net_debt
 
     # Search previous periods for positive FCF
     for p in reversed(sorted_periods[:-1]):
@@ -357,7 +370,11 @@ def calculate_dcf(
             cell_pv_tv = cell_tv / ((1.0 + w) ** projection_years)
             cell_ev = cf_sum + cell_pv_tv
             cell_eq = cell_ev - net_debt
-            cell_price = max(0.01, round(cell_eq / safe_shares, 2))
+            if cell_eq <= 0:
+                # Option value floor: when debt exceeds EV, equity has positive option value on EV
+                cell_price = max(0.01, round((cell_ev * 0.05) / safe_shares, 2))
+            else:
+                cell_price = max(0.01, round(cell_eq / safe_shares, 2))
             row.append(cell_price)
         matrix_rows.append(row)
 

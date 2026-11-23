@@ -48,7 +48,7 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
     trailing_pe: null,
     market_cap: null,
   });
-  const [loading, setLoading] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
   const [recalculating, setRecalculating] = useState<boolean>(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
 
@@ -98,7 +98,7 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
       const availYears = Array.from(
         new Set<number>(
           resolvedPeriods
-            .filter((p: any) => isAnnualPeriod(p) && p.revenue !== null)
+            .filter(isAnnualPeriod)
             .map(extractYear)
             .filter((y: any): y is number => y !== null)
         )
@@ -234,13 +234,13 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
 
   const sortedAnnualPeriods = useMemo(() => {
     return periods
-      .filter((p) => isAnnualPeriod(p) && p.revenue !== null)
+      .filter(isAnnualPeriod)
       .sort((a, b) => (extractYear(a) || 0) - (extractYear(b) || 0));
   }, [periods]);
 
   const sortedQuarterlyPeriods = useMemo(() => {
     return periods
-      .filter((p) => !isAnnualPeriod(p) && p.revenue !== null)
+      .filter((p) => !isAnnualPeriod(p))
       .sort((a, b) => {
         const ya = extractYear(a) || 0;
         const yb = extractYear(b) || 0;
@@ -411,7 +411,15 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
       )}
 
       {/* Standby Banner or Ratio Content */}
-      {!loading && periods.length === 0 ? (
+      {loading ? (
+        <div className="flex flex-col items-center justify-center min-h-[350px] text-center p-8 bg-navy-900/50 rounded-2xl border border-navy-800 shadow-lg animate-pulse">
+          <div className="h-10 w-10 rounded-full bg-navy-800 border border-gold-500/20 text-gold-400 flex items-center justify-center mb-3">
+            <RefreshCw className="h-5 w-5 animate-spin text-gold-400" />
+          </div>
+          <div className="text-sm font-semibold text-white">Calibrating Financial Ratios...</div>
+          <div className="text-xs text-slate-400 mt-1">Crunching institutional multi-year metrics from verified disclosures</div>
+        </div>
+      ) : periods.length === 0 ? (
         <div className="flex flex-col items-center justify-center min-h-[350px] text-center p-8 bg-navy-900/50 rounded-2xl border border-navy-800 shadow-lg">
           <div className="h-12 w-12 rounded-full bg-navy-800 text-gold-400 flex items-center justify-center mb-3">
             <HelpCircle className="h-6 w-6" />
@@ -511,7 +519,7 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
         />
       </div>
 
-      {periodFilter === 'annual' && activePeriods.length === 0 ? (
+      {!loading && periodFilter === 'annual' && activePeriods.length === 0 ? (
         <EmptyPeriodSelectionFallback
           selectedYears={selectedYears}
           availableYears={availableYears}
