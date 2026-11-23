@@ -31,6 +31,7 @@ import {
 } from 'lucide-react';
 import { ChartRevenue } from '@/components/ChartRevenue';
 import { ChartProfitability } from '@/components/ChartProfitability';
+import { PeriodFilterBar, EmptyPeriodSelectionFallback, ALL_YEARS } from '@/components/PeriodFilterBar';
 import { API_BASE } from '@/lib/api';
 import {
   formatFinancialValue,
@@ -82,6 +83,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<'income' | 'balance' | 'cashflow' | 'trends' | 'scenarios'>('income');
   const [marginPeriodFilter, setMarginPeriodFilter] = useState<'annual' | 'quarterly'>('annual');
+  const [marginSelectedYears, setMarginSelectedYears] = useState<number[]>([2023, 2024, 2025, 2026]);
   const [statementsViewMode, setStatementsViewMode] = useState<'values' | 'common_size'>('values');
   const [statementsPeriodFilter, setStatementsPeriodFilter] = useState<'annual' | 'quarterly'>('annual');
 
@@ -132,6 +134,19 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
       }
       const json = await res.json();
       setData(json);
+
+      const rawPeriods: any[] = json.periods || [];
+      const annYears = Array.from(
+        new Set(
+          rawPeriods
+            .filter((p: any) => p.fiscal_year && p.statement_type !== 'quarterly' && (!p.fiscal_period || !p.fiscal_period.startsWith('Q')))
+            .map((p: any) => p.fiscal_year)
+            .filter(Boolean)
+        )
+      ).sort((a: any, b: any) => a - b) as number[];
+      if (annYears.length > 0) {
+        setMarginSelectedYears(annYears);
+      }
 
       if (typeof document !== 'undefined' && json.company_name && json.symbol) {
         document.title = `${json.company_name} (${json.symbol}) | FinSight AI`;
@@ -559,6 +574,14 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
       if (ya !== yb) return ya - yb;
       return (a.fiscal_period || '').localeCompare(b.fiscal_period || '');
     });
+
+  const availableAnnualYears = Array.from(
+    new Set(annualPeriods.map((p: any) => p.fiscal_year).filter(Boolean))
+  ).sort((a: any, b: any) => a - b) as number[];
+
+  const activeMarginPeriods = marginPeriodFilter === 'annual'
+    ? annualPeriods.filter((p: any) => marginSelectedYears.includes(p.fiscal_year))
+    : quarterlyPeriods;
 
   const latestPeriod = annualPeriods.length > 0 ? annualPeriods[annualPeriods.length - 1] : (displayPeriods[displayPeriods.length - 1] || {});
   const latestOpm = latestPeriod.opm_pct ?? (latestPeriod.operating_income && latestPeriod.revenue ? (latestPeriod.operating_income / latestPeriod.revenue) * 100 : null);
@@ -1099,108 +1122,111 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
         </div>
 
         {/* Multi-Period Margin Trends Breakdown */}
-        <div className="bg-navy-900 border border-navy-800 rounded-2xl p-5 shadow-xl space-y-3">
-          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-navy-800 pb-2.5">
-            <div>
-              <h3 className="text-sm font-bold text-white uppercase tracking-wider">
-                Historical Margin Evolution
-              </h3>
-              <span className="text-xs text-slate-400 font-mono">
-                {marginPeriodFilter === 'annual' ? 'Annual (FY) Reporting Periods' : 'Quarterly Financial Trajectory'}
-              </span>
-            </div>
-            {/* Annual | Quarterly Toggle Pill */}
-            <div className="flex items-center gap-1 bg-[#090B0F] p-0.5 rounded-lg border border-white/[0.08]">
-              <button
-                onClick={() => setMarginPeriodFilter('annual')}
-                className={`px-2.5 py-1 text-[11px] font-mono rounded transition-all ${
-                  marginPeriodFilter === 'annual' ? 'bg-sky-500 text-white font-bold shadow-sm' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Annual {annualPeriods.length > 0 && `(${annualPeriods.length}Y)`}
-              </button>
-              <button
-                onClick={() => setMarginPeriodFilter('quarterly')}
-                className={`px-2.5 py-1 text-[11px] font-mono rounded transition-all ${
-                  marginPeriodFilter === 'quarterly' ? 'bg-sky-500 text-white font-bold shadow-sm' : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                Quarterly {quarterlyPeriods.length > 0 && `(${quarterlyPeriods.length}Q)`}
-              </button>
-            </div>
+        <div className="bg-navy-900 border border-navy-800 rounded-2xl p-5 shadow-xl space-y-4">
+          <div className="border-b border-navy-800 pb-2.5">
+            <h3 className="text-sm font-bold text-white uppercase tracking-wider">
+              Historical Margin Evolution
+            </h3>
+            <span className="text-xs text-slate-400 font-mono">
+              Deterministic cross-period profitability and cash conversion trajectory
+            </span>
           </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-xs text-left">
-              <thead>
-                <tr className="border-b border-white/[0.06] text-slate-400 text-[11px] font-mono uppercase bg-[#0C0E14]">
-                  <th className="py-2.5 px-3 font-semibold min-w-[200px]">Margin Ratio</th>
-                  {(marginPeriodFilter === 'annual' ? (annualPeriods.length > 0 ? annualPeriods : displayPeriods) : (quarterlyPeriods.length > 0 ? quarterlyPeriods : displayPeriods)).map((p: any, idx: number) => (
-                    <th key={idx} className="py-2.5 px-3 text-right font-mono font-bold text-white">
-                      {p.fiscal_period || (p.fiscal_year ? `FY${p.fiscal_year}` : 'FY')}
-                    </th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-white/[0.04] font-mono tabular-nums">
-                <tr>
-                  <td className="py-2.5 px-3 font-sans font-medium text-slate-300">Gross Margin %</td>
-                  {(marginPeriodFilter === 'annual' ? (annualPeriods.length > 0 ? annualPeriods : displayPeriods) : (quarterlyPeriods.length > 0 ? quarterlyPeriods : displayPeriods)).map((p: any, idx: number) => {
-                    const gm = p.gross_margin_pct ?? (p.gross_profit && p.revenue ? (p.gross_profit / p.revenue) * 100 : null);
-                    return (
-                      <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
-                        {formatPercent(gm)}
-                      </td>
-                    );
-                  })}
-                </tr>
-                <tr>
-                  <td className="py-2.5 px-3 font-sans font-medium text-slate-300">EBITDA Margin %</td>
-                  {(marginPeriodFilter === 'annual' ? (annualPeriods.length > 0 ? annualPeriods : displayPeriods) : (quarterlyPeriods.length > 0 ? quarterlyPeriods : displayPeriods)).map((p: any, idx: number) => {
-                    const ebitdaVal = p.ebitda ?? (p.operating_income != null ? p.operating_income + Math.abs(p.depreciation_amortization || 0) : null);
-                    const em = p.ebitda_margin_pct ?? (ebitdaVal != null && p.revenue ? (ebitdaVal / p.revenue) * 100 : null);
-                    return (
-                      <td key={idx} className="py-2.5 px-3 text-right text-indigo-400 font-semibold">
-                        {formatPercent(em)}
-                      </td>
-                    );
-                  })}
-                </tr>
-                <tr>
-                  <td className="py-2.5 px-3 font-sans font-medium text-slate-300">Operating Margin (OPM) %</td>
-                  {(marginPeriodFilter === 'annual' ? (annualPeriods.length > 0 ? annualPeriods : displayPeriods) : (quarterlyPeriods.length > 0 ? quarterlyPeriods : displayPeriods)).map((p: any, idx: number) => {
-                    const op = p.opm_pct ?? (p.operating_income && p.revenue ? (p.operating_income / p.revenue) * 100 : null);
-                    return (
-                      <td key={idx} className="py-2.5 px-3 text-right text-gold-300 font-semibold">
-                        {formatPercent(op)}
-                      </td>
-                    );
-                  })}
-                </tr>
-                <tr>
-                  <td className="py-2.5 px-3 font-sans font-medium text-slate-300">Net Profit Margin %</td>
-                  {(marginPeriodFilter === 'annual' ? (annualPeriods.length > 0 ? annualPeriods : displayPeriods) : (quarterlyPeriods.length > 0 ? quarterlyPeriods : displayPeriods)).map((p: any, idx: number) => {
-                    const nm = p.net_margin_pct ?? (p.net_income && p.revenue ? (p.net_income / p.revenue) * 100 : null);
-                    return (
-                      <td key={idx} className="py-2.5 px-3 text-right text-emerald-400 font-semibold">
-                        {formatPercent(nm)}
-                      </td>
-                    );
-                  })}
-                </tr>
-                <tr>
-                  <td className="py-2.5 px-3 font-sans font-medium text-slate-300">FCF Margin %</td>
-                  {(marginPeriodFilter === 'annual' ? (annualPeriods.length > 0 ? annualPeriods : displayPeriods) : (quarterlyPeriods.length > 0 ? quarterlyPeriods : displayPeriods)).map((p: any, idx: number) => {
-                    const fcfm = p.fcf_margin_pct ?? (p.free_cash_flow && p.revenue ? (p.free_cash_flow / p.revenue) * 100 : null);
-                    return (
-                      <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
-                        {formatPercent(fcfm)}
-                      </td>
-                    );
-                  })}
-                </tr>
-              </tbody>
-            </table>
-          </div>
+
+          <PeriodFilterBar
+            mode={marginPeriodFilter}
+            onModeChange={setMarginPeriodFilter}
+            selectedYears={marginSelectedYears}
+            onSelectedYearsChange={setMarginSelectedYears}
+            availableYears={availableAnnualYears}
+            annualCount={annualPeriods.length}
+            quarterlyCount={quarterlyPeriods.length}
+          />
+
+          {marginPeriodFilter === 'annual' && activeMarginPeriods.length === 0 ? (
+            <EmptyPeriodSelectionFallback
+              selectedYears={marginSelectedYears}
+              availableYears={availableAnnualYears}
+              onSelectAllAvailable={() =>
+                setMarginSelectedYears(availableAnnualYears.length > 0 ? availableAnnualYears : [2023, 2024, 2025, 2026])
+              }
+            />
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-xs text-left">
+                <thead>
+                  <tr className="border-b border-white/[0.06] text-slate-400 text-[11px] font-mono uppercase bg-[#0C0E14]">
+                    <th className="py-2.5 px-3 font-semibold min-w-[200px]">Margin Ratio</th>
+                    {activeMarginPeriods.map((p: any, idx: number) => (
+                      <th key={idx} className="py-2.5 px-3 text-right font-mono font-bold text-white min-w-[110px]">
+                        <span className="text-sky-400 text-xs">
+                          {p.fiscal_period || (p.fiscal_year ? `FY${p.fiscal_year}` : 'FY')}
+                        </span>
+                        <div className="text-[10px] text-slate-500 font-normal">{p.fiscal_year}</div>
+                      </th>
+                    ))}
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-white/[0.04] font-mono tabular-nums">
+                  <tr>
+                    <td className="py-2.5 px-3 font-sans font-medium text-slate-300">Gross Margin %</td>
+                    {activeMarginPeriods.map((p: any, idx: number) => {
+                      const gm = p.gross_margin_pct ?? (p.gross_profit && p.revenue ? (p.gross_profit / p.revenue) * 100 : null);
+                      return (
+                        <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
+                          {formatPercent(gm)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 px-3 font-sans font-medium text-slate-300">EBITDA Margin %</td>
+                    {activeMarginPeriods.map((p: any, idx: number) => {
+                      const ebitdaVal = p.ebitda ?? (p.operating_income != null ? p.operating_income + Math.abs(p.depreciation_amortization || 0) : null);
+                      const em = p.ebitda_margin_pct ?? (ebitdaVal != null && p.revenue ? (ebitdaVal / p.revenue) * 100 : null);
+                      return (
+                        <td key={idx} className="py-2.5 px-3 text-right text-indigo-400 font-semibold">
+                          {formatPercent(em)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 px-3 font-sans font-medium text-slate-300">Operating Margin (OPM) %</td>
+                    {activeMarginPeriods.map((p: any, idx: number) => {
+                      const op = p.opm_pct ?? (p.operating_income && p.revenue ? (p.operating_income / p.revenue) * 100 : null);
+                      return (
+                        <td key={idx} className="py-2.5 px-3 text-right text-gold-300 font-semibold">
+                          {formatPercent(op)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 px-3 font-sans font-medium text-slate-300">Net Profit Margin %</td>
+                    {activeMarginPeriods.map((p: any, idx: number) => {
+                      const nm = p.net_margin_pct ?? (p.net_income && p.revenue ? (p.net_income / p.revenue) * 100 : null);
+                      return (
+                        <td key={idx} className="py-2.5 px-3 text-right text-emerald-400 font-semibold">
+                          {formatPercent(nm)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                  <tr>
+                    <td className="py-2.5 px-3 font-sans font-medium text-slate-300">FCF Margin %</td>
+                    {activeMarginPeriods.map((p: any, idx: number) => {
+                      const fcfm = p.fcf_margin_pct ?? (p.free_cash_flow && p.revenue ? (p.free_cash_flow / p.revenue) * 100 : null);
+                      return (
+                        <td key={idx} className="py-2.5 px-3 text-right text-slate-200">
+                          {formatPercent(fcfm)}
+                        </td>
+                      );
+                    })}
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          )}
         </div>
       </div>
     );

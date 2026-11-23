@@ -15,6 +15,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { CsvImportModal } from './CsvImportModal';
+import { PeriodFilterBar, EmptyPeriodSelectionFallback, ALL_YEARS } from './PeriodFilterBar';
 import { API_BASE } from '@/lib/api';
 import { exportCompanyExcelModel } from '@/lib/exportExcel';
 import { 
@@ -37,7 +38,8 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
   onSelectTicker,
 }) => {
   const [activeTab, setActiveTab] = useState<'income' | 'balance' | 'cash_flow' | 'all'>('income');
-  const [periodFilter, setPeriodFilter] = useState<'all' | 'FY' | 'quarterly'>('FY');
+  const [periodFilter, setPeriodFilter] = useState<'annual' | 'quarterly'>('annual');
+  const [selectedYears, setSelectedYears] = useState<number[]>([2023, 2024, 2025, 2026]);
   const [viewMode, setViewMode] = useState<'values' | 'common_size'>('values');
   const [periods, setPeriods] = useState<any[]>([]);
   const [companyInfo, setCompanyInfo] = useState<{
@@ -57,6 +59,12 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
   const [downloadingExcel, setDownloadingExcel] = useState<boolean>(false);
   const [isCsvModalOpen, setIsCsvModalOpen] = useState<boolean>(false);
   const [dataSourceNotice, setDataSourceNotice] = useState<string>('Connecting to Neon DB...');
+
+  // Helper to test if a record is an annual period
+  const isAnnualPeriod = (s: any) =>
+    !s.fiscal_period ||
+    s.fiscal_period.toUpperCase() === 'FY' ||
+    s.fiscal_period.toUpperCase().startsWith('FY');
 
   // Fetch live company analysis dataset from FastAPI
   const loadData = async (forceRefresh: boolean = false) => {
@@ -91,8 +99,24 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
         (p.operating_cash_flow !== null && p.operating_cash_flow !== undefined)
       );
 
-      setPeriods(valid.length > 0 ? valid : sorted);
-      setDataSourceNotice(`Neon PostgreSQL (Live • ${valid.length} Periods Verified)`);
+      const resolvedPeriods = valid.length > 0 ? valid : sorted;
+      setPeriods(resolvedPeriods);
+
+      // Auto-populate selected years with available annual years
+      const availYears = Array.from(
+        new Set(
+          resolvedPeriods
+            .filter(isAnnualPeriod)
+            .map((p: any) => p.fiscal_year)
+            .filter(Boolean)
+        )
+      ).sort((a: any, b: any) => a - b) as number[];
+
+      if (availYears.length > 0) {
+        setSelectedYears(availYears);
+      }
+
+      setDataSourceNotice(`Neon PostgreSQL (Live • ${resolvedPeriods.length} Periods Verified)`);
     } catch (err: any) {
       console.warn('Could not load analysis statements:', err);
       setDataSourceNotice('Neon DB (Synchronizing statement data)');
@@ -104,6 +128,11 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
   useEffect(() => {
     loadData();
   }, [ticker]);
+
+  // Extract available annual years from loaded periods
+  const availableYears = Array.from(
+    new Set(periods.filter(isAnnualPeriod).map((s) => s.fiscal_year).filter(Boolean))
+  ).sort((a: any, b: any) => a - b) as number[];
 
   // Filter periods by FY vs Quarterly and sort chronologically
   const parseQuarterOrder = (periodStr: string, year?: number) => {
@@ -127,9 +156,13 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
       );
       if (!hasCoreData) return false;
 
-      const isAnnual = !s.fiscal_period || s.fiscal_period.toUpperCase() === 'FY' || s.fiscal_period.toUpperCase().startsWith('FY');
-      if (periodFilter === 'FY') return isAnnual;
-      if (periodFilter === 'quarterly') return !isAnnual;
+      const isAnnual = isAnnualPeriod(s);
+      if (periodFilter === 'annual') {
+        return isAnnual && selectedYears.includes(s.fiscal_year);
+      }
+      if (periodFilter === 'quarterly') {
+        return !isAnnual;
+      }
       return true;
     })
     .sort((a, b) => {
@@ -140,8 +173,8 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     });
 
   // Calculate counts for Annual vs Quarterly periods
-  const annualCount = periods.filter((s) => !s.fiscal_period || s.fiscal_period.toUpperCase() === 'FY' || s.fiscal_period.toUpperCase().startsWith('FY')).length;
-  const quarterlyCount = periods.filter((s) => s.fiscal_period && !s.fiscal_period.toUpperCase().startsWith('FY')).length;
+  const annualCount = periods.filter(isAnnualPeriod).length;
+  const quarterlyCount = periods.filter((s) => !isAnnualPeriod(s)).length;
 
   // Formula-injection sanitization for CSV export (CWE-1236 mitigation)
   const sanitizeCsvCell = (val: any): string => {
@@ -884,7 +917,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
           </button>
         </div>
 
-        {/* Controls: Common-Size Toggle + Annual | Quarterly Toggle */}
+        {/* Controls: Common-Size Toggle */}
         <div className="flex items-center gap-3 flex-wrap self-end lg:self-auto text-xs">
           {/* Common-Size View Toggle (Values | Common-Size %) */}
           <div className="flex items-center gap-1.5">
@@ -916,62 +949,19 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
               </button>
             </div>
           </div>
-
-          {/* Period Filter (Annual | Quarterly Toggle Pill) */}
-          <div className="flex items-center gap-1.5">
-            <span className="text-slate-400 text-[11px] font-medium flex items-center gap-1">
-              <Calendar className="h-3 w-3 text-sky-400" />
-              Horizon:
-            </span>
-            <div className="bg-[#090B0F] p-1 rounded-lg border border-white/[0.08] flex gap-1 shadow-inner">
-              <button
-                onClick={() => setPeriodFilter('FY')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                  periodFilter === 'FY'
-                    ? 'bg-sky-500 text-white shadow-sm font-bold'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <span>Annual</span>
-                {annualCount > 0 && (
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                    periodFilter === 'FY' ? 'bg-navy-950/20 text-navy-950 font-bold' : 'bg-navy-800 text-slate-400'
-                  }`}>
-                    {annualCount}Y
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setPeriodFilter('quarterly')}
-                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                  periodFilter === 'quarterly'
-                    ? 'bg-sky-500 text-white shadow-sm font-bold'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                <span>Quarterly</span>
-                {quarterlyCount > 0 && (
-                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                    periodFilter === 'quarterly' ? 'bg-navy-950/20 text-navy-950 font-bold' : 'bg-navy-800 text-slate-400'
-                  }`}>
-                    {quarterlyCount}Q
-                  </span>
-                )}
-              </button>
-              <button
-                onClick={() => setPeriodFilter('all')}
-                className={`px-2 py-1 rounded-lg text-xs font-medium transition-all ${
-                  periodFilter === 'all'
-                    ? 'bg-navy-800 text-white font-bold'
-                    : 'text-slate-400 hover:text-white'
-                }`}
-              >
-                All
-              </button>
-            </div>
-          </div>
         </div>
       </div>
+
+      {/* 2017–2026 Custom Year Selector & Annual vs Quarterly Section Switcher */}
+      <PeriodFilterBar
+        mode={periodFilter}
+        onModeChange={setPeriodFilter}
+        selectedYears={selectedYears}
+        onSelectedYearsChange={setSelectedYears}
+        availableYears={availableYears}
+        annualCount={annualCount}
+        quarterlyCount={quarterlyCount}
+      />
 
       {/* Financial Statement Tables Container */}
       {!loading && periods.length === 0 ? (
@@ -990,6 +980,14 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
             <RefreshCw className="h-3.5 w-3.5" /> Re-sync Statements
           </button>
         </div>
+      ) : !loading && periodFilter === 'annual' && filteredPeriods.length === 0 ? (
+        <EmptyPeriodSelectionFallback
+          selectedYears={selectedYears}
+          availableYears={availableYears}
+          onSelectAllAvailable={() =>
+            setSelectedYears(availableYears.length > 0 ? availableYears : [2023, 2024, 2025, 2026])
+          }
+        />
       ) : (
         <div className="bg-[#11141B] border border-white/[0.07] rounded-xl overflow-hidden shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]">
           <div className="overflow-x-auto">

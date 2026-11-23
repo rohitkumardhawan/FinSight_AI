@@ -13,6 +13,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
+import { PeriodFilterBar, EmptyPeriodSelectionFallback, ALL_YEARS } from './PeriodFilterBar';
 import { 
   formatPercent, 
   formatMultiple, 
@@ -29,6 +30,8 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
   onSelectTicker,
 }) => {
   const [periods, setPeriods] = useState<any[]>([]);
+  const [periodFilter, setPeriodFilter] = useState<'annual' | 'quarterly'>('annual');
+  const [selectedYears, setSelectedYears] = useState<number[]>([2023, 2024, 2025, 2026]);
   const [companyInfo, setCompanyInfo] = useState<{
     id?: number;
     symbol: string;
@@ -48,6 +51,19 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
   const [loading, setLoading] = useState<boolean>(false);
   const [recalculating, setRecalculating] = useState<boolean>(false);
   const [notification, setNotification] = useState<{ type: 'success' | 'error'; message: string } | null>(null);
+
+  // Filter and sort helper functions
+  const isQuarterlyPeriod = (p: any) =>
+    p.statement_type === 'quarterly' ||
+    (p.fiscal_period && p.fiscal_period.toUpperCase().startsWith('Q'));
+
+  const parseQuarterOrder = (periodStr: string, year?: number) => {
+    const match = periodStr.match(/Q(\d)\s*(\d{4})?/i);
+    if (!match) return (year || 0) * 10;
+    const qNum = parseInt(match[1], 10);
+    const qYear = match[2] ? parseInt(match[2], 10) : (year || 0);
+    return qYear * 10 + qNum;
+  };
 
   const loadData = async (forceRefresh: boolean = false) => {
     setLoading(true);
@@ -76,7 +92,16 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
         (p.operating_income !== null && p.operating_income !== undefined) ||
         (p.net_income !== null && p.net_income !== undefined)
       );
-      setPeriods(valid.length > 0 ? valid : sorted);
+      const resolvedPeriods = valid.length > 0 ? valid : sorted;
+      setPeriods(resolvedPeriods);
+
+      const availYears = resolvedPeriods
+        .filter((p: any) => !isQuarterlyPeriod(p) && p.revenue !== null)
+        .map((p: any) => p.fiscal_year)
+        .filter(Boolean) as number[];
+      if (availYears.length > 0) {
+        setSelectedYears(Array.from(new Set(availYears)).sort((a, b) => a - b));
+      }
     } catch (err: any) {
       console.warn('Could not load ratios dataset:', err);
     } finally {
@@ -203,21 +228,6 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
     return null;
   };
 
-  const [periodFilter, setPeriodFilter] = useState<'annual' | 'quarterly'>('annual');
-
-  // Filter and sort Annual (FY) vs Quarterly periods
-  const isQuarterlyPeriod = (p: any) =>
-    p.statement_type === 'quarterly' ||
-    (p.fiscal_period && p.fiscal_period.toUpperCase().startsWith('Q'));
-
-  const parseQuarterOrder = (periodStr: string, year?: number) => {
-    const match = periodStr.match(/Q(\d)\s*(\d{4})?/i);
-    if (!match) return (year || 0) * 10;
-    const qNum = parseInt(match[1], 10);
-    const qYear = match[2] ? parseInt(match[2], 10) : (year || 0);
-    return qYear * 10 + qNum;
-  };
-
   const sortedAnnualPeriods = periods
     .filter(p => !isQuarterlyPeriod(p) && p.revenue !== null)
     .sort((a, b) => (a.fiscal_year || 0) - (b.fiscal_year || 0));
@@ -226,9 +236,13 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
     .filter(p => isQuarterlyPeriod(p) && p.revenue !== null)
     .sort((a, b) => parseQuarterOrder(a.fiscal_period || '', a.fiscal_year) - parseQuarterOrder(b.fiscal_period || '', b.fiscal_year));
 
+  const availableYears = Array.from(
+    new Set(sortedAnnualPeriods.map((p) => p.fiscal_year).filter(Boolean))
+  ).sort((a: any, b: any) => a - b) as number[];
+
   const activePeriods = periodFilter === 'annual'
-    ? (sortedAnnualPeriods.length > 0 ? sortedAnnualPeriods : periods)
-    : (sortedQuarterlyPeriods.length > 0 ? sortedQuarterlyPeriods : periods);
+    ? sortedAnnualPeriods.filter((p) => selectedYears.includes(p.fiscal_year))
+    : sortedQuarterlyPeriods;
 
   const latestAnnualPeriod = sortedAnnualPeriods.length > 0
     ? sortedAnnualPeriods[sortedAnnualPeriods.length - 1]
@@ -459,62 +473,30 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
             </div>
           )}
 
-      {/* Historical Ratios Multi-Year Comparison Table Header & Horizon Controls */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
-        <div>
-          <h2 className="text-base font-bold text-white">Historical Ratio Evolution</h2>
-          <p className="text-xs text-slate-400">Deterministic cross-statement financial analytics</p>
-        </div>
-
-        {/* Horizon Toggle Pill: Annual | Quarterly */}
-        <div className="flex items-center gap-1.5 self-start sm:self-auto">
-          <span className="text-slate-400 text-[11px] font-medium flex items-center gap-1">
-            <Calendar className="h-3.5 w-3.5 text-sky-400" />
-            <span>Horizon:</span>
-          </span>
-          <div className="bg-[#090B0F] p-1 rounded-lg border border-white/[0.08] flex gap-1 shadow-inner">
-            <button
-              type="button"
-              onClick={() => setPeriodFilter('annual')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                periodFilter === 'annual'
-                  ? 'bg-sky-500 text-white shadow-sm font-bold'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <span>Annual</span>
-              {sortedAnnualPeriods.length > 0 && (
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                  periodFilter === 'annual' ? 'bg-navy-950/20 text-navy-950 font-bold' : 'bg-navy-800 text-slate-400'
-                }`}>
-                  {sortedAnnualPeriods.length}Y
-                </span>
-              )}
-            </button>
-            <button
-              type="button"
-              onClick={() => setPeriodFilter('quarterly')}
-              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                periodFilter === 'quarterly'
-                  ? 'bg-sky-500 text-white shadow-sm font-bold'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              <span>Quarterly</span>
-              {sortedQuarterlyPeriods.length > 0 && (
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                  periodFilter === 'quarterly' ? 'bg-navy-950/20 text-navy-950 font-bold' : 'bg-navy-800 text-slate-400'
-                }`}>
-                  {sortedQuarterlyPeriods.length}Q
-                </span>
-              )}
-            </button>
-          </div>
-        </div>
+      {/* 2017–2026 Custom Year Selector & Annual vs. Quarterly Section Switcher */}
+      <div className="pt-2">
+        <PeriodFilterBar
+          mode={periodFilter}
+          onModeChange={setPeriodFilter}
+          selectedYears={selectedYears}
+          onSelectedYearsChange={setSelectedYears}
+          availableYears={availableYears}
+          annualCount={sortedAnnualPeriods.length}
+          quarterlyCount={sortedQuarterlyPeriods.length}
+        />
       </div>
 
-      {/* Historical Ratios Multi-Year Comparison Table */}
-      <div className="bg-navy-900 border border-navy-800 rounded-2xl overflow-hidden shadow-xl">
+      {periodFilter === 'annual' && activePeriods.length === 0 ? (
+        <EmptyPeriodSelectionFallback
+          selectedYears={selectedYears}
+          availableYears={availableYears}
+          onSelectAllAvailable={() =>
+            setSelectedYears(availableYears.length > 0 ? availableYears : [2023, 2024, 2025, 2026])
+          }
+        />
+      ) : (
+        /* Historical Ratios Multi-Year Comparison Table */
+        <div className="bg-navy-900 border border-navy-800 rounded-2xl overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead className="bg-navy-950 text-slate-400 text-[11px] uppercase tracking-wider border-b border-navy-800">
@@ -799,6 +781,7 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
           </div>
         </div>
       </div>
+      )}
       </>
       )}
     </div>
