@@ -1780,6 +1780,59 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                     );
                   })}
                 </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">(+) Other Income / (Expense)</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-4 text-right text-slate-200">
+                      {formatFinancialValue(p.other_income, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">(-) Interest Expense</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const interest = p.interest_expense != null ? Math.abs(p.interest_expense) : null;
+                    return (
+                      <td key={idx} className="py-2.5 px-4 text-right text-rose-300/85">
+                        {formatAccountingValue(interest, currency, true)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-200 font-sans font-semibold sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">= Profit Before Tax (EBT)</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const pbt = p.profit_before_tax ?? (p.operating_income != null ? p.operating_income + (p.other_income || 0) - (p.interest_expense || 0) : null);
+                    return (
+                      <td key={idx} className="py-2.5 px-4 text-right text-slate-200 font-semibold">
+                        {formatFinancialValue(pbt, currency)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">(-) Income Tax Expense</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const tax = p.tax_expense != null ? Math.abs(p.tax_expense) : null;
+                    return (
+                      <td key={idx} className="py-2.5 px-4 text-right text-rose-300/85">
+                        {formatAccountingValue(tax, currency, true)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans italic text-xs sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Effective Tax Rate %</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const pbt = p.profit_before_tax ?? (p.operating_income != null ? p.operating_income + (p.other_income || 0) - (p.interest_expense || 0) : null);
+                    const tr = p.tax_expense != null && pbt && pbt > 0 ? (Math.abs(p.tax_expense) / pbt) * 100 : null;
+                    return (
+                      <td key={idx} className="py-2.5 px-4 text-right text-indigo-400 font-semibold">
+                        {formatPercent(tr)}
+                      </td>
+                    );
+                  })}
+                </tr>
                 <tr className="bg-emerald-500/[0.05] border-b border-white/[0.08] hover:bg-emerald-500/[0.08] transition-colors">
                   <td className="py-2.5 px-4 text-emerald-400 font-sans font-bold sticky left-0 bg-[#121c1a] z-10 border-r border-white/[0.06]">= Net Income</td>
                   {displayPeriods.map((p: any, idx: number) => (
@@ -1787,6 +1840,17 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                       {formatFinancialValue(p.net_income, currency)}
                     </td>
                   ))}
+                </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans italic text-xs sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Net Margin %</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const nm = p.net_income != null && p.revenue ? (p.net_income / p.revenue) * 100 : null;
+                    return (
+                      <td key={idx} className="py-2.5 px-4 text-right text-emerald-400 font-semibold">
+                        {formatPercent(nm)}
+                      </td>
+                    );
+                  })}
                 </tr>
                 <tr className="hover:bg-white/[0.03] transition-colors">
                   <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Diluted EPS</td>
@@ -1822,26 +1886,85 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                   ))}
                 </tr>
                 <tr className="hover:bg-white/[0.03] transition-colors">
-                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Current Assets</td>
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Trade Accounts Receivable</td>
                   {displayPeriods.map((p: any, idx: number) => (
                     <td key={idx} className="py-2.5 px-4 text-right text-slate-200">
+                      {formatFinancialValue(p.receivables, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Inventories</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-4 text-right text-slate-200">
+                      {formatFinancialValue(p.inventory, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Other Current Assets</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-4 text-right text-slate-200">
+                      {formatFinancialValue(p.other_current_assets, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="bg-sky-500/[0.03] hover:bg-sky-500/[0.06] transition-colors">
+                  <td className="py-2.5 px-4 text-sky-200 font-sans font-semibold sticky left-0 bg-[#141822] z-10 border-r border-white/[0.06]">= Total Current Assets</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-4 text-right text-sky-200 font-semibold">
                       {formatFinancialValue(p.current_assets, currency)}
                     </td>
                   ))}
                 </tr>
                 <tr className="hover:bg-white/[0.03] transition-colors">
-                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Property, Plant & Equipment (Net)</td>
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Property, Plant & Equipment (Net PPE)</td>
                   {displayPeriods.map((p: any, idx: number) => (
                     <td key={idx} className="py-2.5 px-4 text-right text-slate-200">
                       {formatFinancialValue(p.net_ppe, currency)}
                     </td>
                   ))}
                 </tr>
-                <tr className="bg-cyan-500/[0.03] hover:bg-cyan-500/[0.06] transition-colors">
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Investments & Financial Assets</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-4 text-right text-slate-200">
+                      {formatFinancialValue(p.investments, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Other Non-Current Assets</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-4 text-right text-slate-200">
+                      {formatFinancialValue(p.other_non_current_assets, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="bg-sky-500/[0.03] hover:bg-sky-500/[0.06] transition-colors">
+                  <td className="py-2.5 px-4 text-sky-200 font-sans font-semibold sticky left-0 bg-[#141822] z-10 border-r border-white/[0.06]">= Total Non-Current Assets</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const nonCurr = p.non_current_assets ?? (p.total_assets != null && p.current_assets != null ? p.total_assets - p.current_assets : null);
+                    return (
+                      <td key={idx} className="py-2.5 px-4 text-right text-sky-200 font-semibold">
+                        {formatFinancialValue(nonCurr, currency)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr className="bg-cyan-500/[0.04] hover:bg-cyan-500/[0.07] transition-colors">
                   <td className="py-2.5 px-4 text-cyan-200 font-sans font-bold sticky left-0 bg-[#131b20] z-10 border-r border-white/[0.06]">= Total Assets</td>
                   {displayPeriods.map((p: any, idx: number) => (
                     <td key={idx} className="py-2.5 px-4 text-right text-cyan-200 font-bold">
                       {formatFinancialValue(p.total_assets, currency)}
+                    </td>
+                  ))}
+                </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Trade Accounts Payable</td>
+                  {displayPeriods.map((p: any, idx: number) => (
+                    <td key={idx} className="py-2.5 px-4 text-right text-slate-200">
+                      {formatFinancialValue(p.trade_payables, currency)}
                     </td>
                   ))}
                 </tr>
@@ -1862,6 +1985,17 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                   ))}
                 </tr>
                 <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Other Non-Current Liabilities</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const otherLiab = p.other_liabilities ?? (p.total_liabilities != null && p.current_liabilities != null ? Math.max(0, p.total_liabilities - p.current_liabilities) : null);
+                    return (
+                      <td key={idx} className="py-2.5 px-4 text-right text-slate-200">
+                        {formatFinancialValue(otherLiab, currency)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
                   <td className="py-2.5 px-4 text-slate-200 font-sans font-semibold sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">= Total Liabilities</td>
                   {displayPeriods.map((p: any, idx: number) => (
                     <td key={idx} className="py-2.5 px-4 text-right text-slate-200 font-semibold">
@@ -1869,13 +2003,47 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                     </td>
                   ))}
                 </tr>
-                <tr className="bg-sky-500/[0.04] border-b border-white/[0.08] hover:bg-sky-500/[0.07] transition-colors">
-                  <td className="py-2.5 px-4 text-sky-300 font-sans font-bold sticky left-0 bg-[#141822] z-10 border-r border-white/[0.06]">= Total Stockholders' Equity</td>
+                <tr className="bg-emerald-500/[0.04] border-b border-white/[0.08] hover:bg-emerald-500/[0.07] transition-colors">
+                  <td className="py-2.5 px-4 text-emerald-300 font-sans font-bold sticky left-0 bg-[#121c1a] z-10 border-r border-white/[0.06]">= Total Stockholders' Equity</td>
                   {displayPeriods.map((p: any, idx: number) => (
-                    <td key={idx} className="py-2.5 px-4 text-right text-sky-200 font-bold">
+                    <td key={idx} className="py-2.5 px-4 text-right text-emerald-300 font-bold">
                       {formatFinancialValue(p.total_equity, currency)}
                     </td>
                   ))}
+                </tr>
+                <tr className="hover:bg-white/[0.02] border-t border-white/[0.08] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-400 font-sans italic text-xs sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Net Debt (Total Debt - Cash)</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const nd = p.net_debt ?? (p.total_debt != null ? p.total_debt - (p.cash_and_equivalents || 0) : null);
+                    return (
+                      <td key={idx} className="py-2.5 px-4 text-right text-indigo-300 font-mono text-xs">
+                        {formatFinancialValue(nd, currency)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr className="hover:bg-white/[0.02] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-400 font-sans italic text-xs sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Net Working Capital (Current Assets - Current Liab)</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const nwc = p.net_working_capital ?? (p.current_assets != null && p.current_liabilities != null ? p.current_assets - p.current_liabilities : null);
+                    return (
+                      <td key={idx} className="py-2.5 px-4 text-right text-indigo-300 font-mono text-xs">
+                        {formatFinancialValue(nwc, currency)}
+                      </td>
+                    );
+                  })}
+                </tr>
+                <tr className="hover:bg-white/[0.02] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-400 font-sans italic text-xs sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Invested Capital (Net Debt + Equity)</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const nd = p.net_debt ?? (p.total_debt != null ? p.total_debt - (p.cash_and_equivalents || 0) : 0);
+                    const inv = p.invested_capital ?? (p.total_equity != null ? nd + p.total_equity : null);
+                    return (
+                      <td key={idx} className="py-2.5 px-4 text-right text-indigo-300 font-mono text-xs">
+                        {formatFinancialValue(inv, currency)}
+                      </td>
+                    );
+                  })}
                 </tr>
               </tbody>
             </table>
@@ -1901,6 +2069,17 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                       {formatFinancialValue(p.operating_cash_flow, currency)}
                     </td>
                   ))}
+                </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans italic text-xs sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Memo: D&A Non-Cash Add-Back</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const da = p.depreciation_amortization != null ? Math.abs(p.depreciation_amortization) : null;
+                    return (
+                      <td key={idx} className="py-2.5 px-4 text-right text-indigo-300 text-xs">
+                        {formatFinancialValue(da, currency)}
+                      </td>
+                    );
+                  })}
                 </tr>
                 <tr className="hover:bg-white/[0.03] transition-colors">
                   <td className="py-2.5 px-4 text-slate-300 font-sans sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">Investing Cash Flow (CFI)</td>
@@ -1929,6 +2108,17 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                     </td>
                   ))}
                 </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-200 font-sans font-semibold sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">= Net Change in Cash (OCF + CFI + CFF)</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const netCash = p.net_change_in_cash ?? ((p.operating_cash_flow || 0) + (p.investing_cash_flow || 0) + (p.financing_cash_flow || 0));
+                    return (
+                      <td key={idx} className="py-2.5 px-4 text-right text-slate-200 font-semibold">
+                        {formatAccountingValue(netCash, currency, false)}
+                      </td>
+                    );
+                  })}
+                </tr>
                 <tr className="bg-emerald-500/[0.05] border-b border-white/[0.08] hover:bg-emerald-500/[0.08] transition-colors">
                   <td className="py-2.5 px-4 text-emerald-400 font-sans font-bold sticky left-0 bg-[#121c1a] z-10 border-r border-white/[0.06]">= Free Cash Flow (FCF)</td>
                   {displayPeriods.map((p: any, idx: number) => (
@@ -1936,6 +2126,18 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
                       {formatFinancialValue(p.free_cash_flow, currency)}
                     </td>
                   ))}
+                </tr>
+                <tr className="hover:bg-white/[0.03] transition-colors">
+                  <td className="py-2.5 px-4 text-slate-300 font-sans italic text-xs sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06] pl-8">CFO / EBITDA Cash Conversion %</td>
+                  {displayPeriods.map((p: any, idx: number) => {
+                    const eb = p.ebitda ?? (p.operating_income != null ? p.operating_income + Math.abs(p.depreciation_amortization || 0) : null);
+                    const conv = p.operating_cash_flow != null && eb && eb > 0 ? (p.operating_cash_flow / eb) * 100 : null;
+                    return (
+                      <td key={idx} className="py-2.5 px-4 text-right text-emerald-400 font-semibold">
+                        {formatPercent(conv)}
+                      </td>
+                    );
+                  })}
                 </tr>
               </tbody>
             </table>
