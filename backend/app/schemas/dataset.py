@@ -48,16 +48,30 @@ class FinancialPeriodRecord(BaseModel):
     # Balance Sheet metrics
     total_assets: Optional[float] = None
     current_assets: Optional[float] = None
+    cash_and_equivalents: Optional[float] = None
+    receivables: Optional[float] = None
+    inventory: Optional[float] = None
+    other_current_assets: Optional[float] = None
+    net_ppe: Optional[float] = None
+    investments: Optional[float] = None
+    other_non_current_assets: Optional[float] = None
+    non_current_assets: Optional[float] = None
     total_liabilities: Optional[float] = None
     current_liabilities: Optional[float] = None
-    total_equity: Optional[float] = None
-    cash_and_equivalents: Optional[float] = None
-    inventory: Optional[float] = None
+    trade_payables: Optional[float] = None
     total_debt: Optional[float] = None
+    other_liabilities: Optional[float] = None
+    total_equity: Optional[float] = None
+    net_debt: Optional[float] = None
+    net_working_capital: Optional[float] = None
+    invested_capital: Optional[float] = None
     
     # Cash Flow metrics
     operating_cash_flow: Optional[float] = None
     capital_expenditure: Optional[float] = None
+    investing_cash_flow: Optional[float] = None
+    financing_cash_flow: Optional[float] = None
+    net_change_in_cash: Optional[float] = None
     free_cash_flow: Optional[float] = None
     
     # Metadata

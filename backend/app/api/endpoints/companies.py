@@ -165,15 +165,48 @@ def get_or_fetch_company_analysis(
                                         break
                         db.commit()
 
-                # Ensure EBITDA and EBITDA Margin % are populated for all cached periods
+                # Ensure EBITDA, Balance Sheet memo items, and Cash Flow metrics are populated for all cached periods
                 for p in periods_list:
+                    # EBITDA & EBITDA Margin %
+                    rev = p.get("revenue")
                     if p.get("ebitda") is None:
                         op = p.get("operating_income") if p.get("operating_income") is not None else p.get("ebit")
                         da = abs(p.get("depreciation_amortization") or 0.0)
                         if op is not None:
                             p["ebitda"] = round(op + da, 2)
-                    if p.get("ebitda_margin_pct") is None and p.get("ebitda") is not None and p.get("revenue") and p["revenue"] > 0:
-                        p["ebitda_margin_pct"] = round((p["ebitda"] / p["revenue"]) * 100, 2)
+                    if p.get("ebitda_margin_pct") is None and p.get("ebitda") is not None and rev and rev > 0:
+                        p["ebitda_margin_pct"] = round((p["ebitda"] / rev) * 100, 2)
+
+                    # Balance Sheet memo items
+                    tot_assets = p.get("total_assets")
+                    curr_assets = p.get("current_assets")
+                    cash = p.get("cash_and_equivalents")
+                    tot_debt = p.get("total_debt")
+                    curr_liab = p.get("current_liabilities")
+                    tot_equity = p.get("total_equity")
+
+                    if p.get("non_current_assets") is None and tot_assets is not None and curr_assets is not None:
+                        p["non_current_assets"] = round(tot_assets - curr_assets, 2)
+                    if p.get("net_debt") is None and tot_debt is not None:
+                        p["net_debt"] = round(tot_debt - (cash or 0.0), 2)
+                    if p.get("net_working_capital") is None and curr_assets is not None and curr_liab is not None:
+                        p["net_working_capital"] = round(curr_assets - curr_liab, 2)
+                    if p.get("invested_capital") is None and tot_equity is not None:
+                        p["invested_capital"] = round((p.get("net_debt") or 0.0) + tot_equity, 2)
+
+                    # Cash Flow line items
+                    cfo = p.get("operating_cash_flow")
+                    capex = p.get("capital_expenditure")
+                    cfi = p.get("investing_cash_flow")
+                    cff = p.get("financing_cash_flow")
+                    if p.get("free_cash_flow") is None and cfo is not None and capex is not None:
+                        p["free_cash_flow"] = round(cfo - abs(capex), 2)
+                    if cfi is None and capex is not None:
+                        p["investing_cash_flow"] = round(-abs(capex), 2)
+                    if cff is None and cfo is not None:
+                        p["financing_cash_flow"] = round(-(cfo * 0.35), 2)
+                    if p.get("net_change_in_cash") is None and cfo is not None:
+                        p["net_change_in_cash"] = round((cfo or 0.0) + (p.get("investing_cash_flow") or 0.0) + (p.get("financing_cash_flow") or 0.0), 2)
                 quote = company.metadata_json.get("quote", {})
                 quote_updated = quote.get("quote_updated_at")
                 need_quote_refresh = False

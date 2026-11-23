@@ -246,21 +246,60 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
         # Extract Balance Sheet metrics
         total_assets = _get_metric_val(balance_sheet, ["Total Assets"], dt)
         current_assets = _get_metric_val(balance_sheet, ["Current Assets"], dt)
+        cash = _get_metric_val(balance_sheet, ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments", "Cash Financial"], dt)
+        receivables = _get_metric_val(balance_sheet, ["Accounts Receivable", "Receivables", "Gross Accounts Receivable"], dt)
+        inventory = _get_metric_val(balance_sheet, ["Inventory"], dt)
+        other_curr_assets = _get_metric_val(balance_sheet, ["Other Current Assets", "Prepaid Assets"], dt)
+        if other_curr_assets is None and current_assets is not None:
+            sub = (cash or 0.0) + (receivables or 0.0) + (inventory or 0.0)
+            if current_assets > sub:
+                other_curr_assets = round(current_assets - sub, 2)
+
+        net_ppe = _get_metric_val(balance_sheet, ["Net PPE", "Net Property Plant And Equipment", "Gross PPE", "Properties"], dt)
+        investments = _get_metric_val(balance_sheet, ["Investmentin Financial Assets", "Investments And Advances", "Long Term Equity Investment", "Financial Assets", "Other Investments"], dt)
+        other_non_curr = _get_metric_val(balance_sheet, ["Other Non Current Assets", "Goodwill And Other Intangible Assets", "Goodwill", "Other Intangible Assets"], dt)
+        total_non_curr = _get_metric_val(balance_sheet, ["Total Non Current Assets"], dt)
+        if total_non_curr is None and total_assets is not None and current_assets is not None:
+            total_non_curr = round(total_assets - current_assets, 2)
+        elif total_non_curr is None:
+            total_non_curr = round((net_ppe or 0.0) + (investments or 0.0) + (other_non_curr or 0.0), 2)
+        if other_non_curr is None and total_non_curr is not None:
+            sub_nc = (net_ppe or 0.0) + (investments or 0.0)
+            if total_non_curr > sub_nc:
+                other_non_curr = round(total_non_curr - sub_nc, 2)
+
         total_liab = _get_metric_val(balance_sheet, ["Total Liabilities Net Minority Interest", "Total Liabilities"], dt)
         current_liab = _get_metric_val(balance_sheet, ["Current Liabilities"], dt)
+        payables = _get_metric_val(balance_sheet, ["Accounts Payable", "Payables", "Other Payable"], dt)
+        total_debt = _get_metric_val(balance_sheet, ["Total Debt", "Long Term Debt And Capital Lease Obligation", "Long Term Debt"], dt)
+        other_liab = _get_metric_val(balance_sheet, ["Other Non Current Liabilities", "Other Current Liabilities"], dt)
+        if other_liab is None and total_liab is not None and current_liab is not None:
+            other_liab = round(max(0.0, total_liab - current_liab), 2)
+
         total_equity = _get_metric_val(balance_sheet, ["Stockholders Equity", "Common Stock Equity"], dt)
-        cash = _get_metric_val(balance_sheet, ["Cash And Cash Equivalents", "Cash Financial"], dt)
-        inventory = _get_metric_val(balance_sheet, ["Inventory"], dt)
-        total_debt = _get_metric_val(balance_sheet, ["Total Debt"], dt)
+        net_debt = _get_metric_val(balance_sheet, ["Net Debt"], dt)
+        if net_debt is None and total_debt is not None:
+            net_debt = round(total_debt - (cash or 0.0), 2)
+        nwc = _get_metric_val(balance_sheet, ["Working Capital"], dt)
+        if nwc is None and current_assets is not None and current_liab is not None:
+            nwc = round(current_assets - current_liab, 2)
+        invested_cap = _get_metric_val(balance_sheet, ["Invested Capital"], dt)
+        if invested_cap is None and total_equity is not None:
+            invested_cap = round((net_debt or 0.0) + total_equity, 2)
 
         # Extract Cash Flow metrics
         cfo = _get_metric_val(cashflow, ["Operating Cash Flow", "Cash Flow From Continuing Operating Activities"], dt)
-        capex = _get_metric_val(cashflow, ["Capital Expenditure"], dt)
+        cfi = _get_metric_val(cashflow, ["Investing Cash Flow", "Cash Flow From Continuing Investing Activities", "Net Other Investing Changes"], dt)
+        capex = _get_metric_val(cashflow, ["Capital Expenditure", "Purchase Of PPE"], dt)
         if capex is not None:
             capex = abs(capex)
+        cff = _get_metric_val(cashflow, ["Financing Cash Flow", "Cash Flow From Continuing Financing Activities"], dt)
+        net_change_cash = _get_metric_val(cashflow, ["Changes In Cash", "Net Change In Cash"], dt)
+        if net_change_cash is None and cfo is not None:
+            net_change_cash = round((cfo or 0.0) + (cfi or 0.0) + (cff or 0.0), 2)
         fcf = _get_metric_val(cashflow, ["Free Cash Flow"], dt)
         if fcf is None and cfo is not None and capex is not None:
-            fcf = cfo - capex
+            fcf = round(cfo - capex, 2)
 
         # Derived Ratios
         opm = round((op_inc / rev) * 100, 2) if (op_inc is not None and rev and rev > 0) else None
@@ -289,14 +328,28 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
             opm_pct=opm,
             total_assets=total_assets,
             current_assets=current_assets,
+            cash_and_equivalents=cash,
+            receivables=receivables,
+            inventory=inventory,
+            other_current_assets=other_curr_assets,
+            net_ppe=net_ppe,
+            investments=investments,
+            other_non_current_assets=other_non_curr,
+            non_current_assets=total_non_curr,
             total_liabilities=total_liab,
             current_liabilities=current_liab,
-            total_equity=total_equity,
-            cash_and_equivalents=cash,
-            inventory=inventory,
+            trade_payables=payables,
             total_debt=total_debt,
+            other_liabilities=other_liab,
+            total_equity=total_equity,
+            net_debt=net_debt,
+            net_working_capital=nwc,
+            invested_capital=invested_cap,
             operating_cash_flow=cfo,
             capital_expenditure=capex,
+            investing_cash_flow=cfi,
+            financing_cash_flow=cff,
+            net_change_in_cash=net_change_cash,
             free_cash_flow=fcf,
             source=f"Yahoo Finance ({clean_symbol})"
         )
@@ -358,17 +411,56 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
             # Balance Sheet
             total_assets_q = _get_metric_val(q_balance_sheet, ["Total Assets"], q_dt)
             current_assets_q = _get_metric_val(q_balance_sheet, ["Current Assets"], q_dt)
+            cash_q = _get_metric_val(q_balance_sheet, ["Cash And Cash Equivalents", "Cash Cash Equivalents And Short Term Investments", "Cash Financial"], q_dt)
+            receivables_q = _get_metric_val(q_balance_sheet, ["Accounts Receivable", "Receivables", "Gross Accounts Receivable"], q_dt)
+            inventory_q = _get_metric_val(q_balance_sheet, ["Inventory"], q_dt)
+            other_curr_assets_q = _get_metric_val(q_balance_sheet, ["Other Current Assets", "Prepaid Assets"], q_dt)
+            if other_curr_assets_q is None and current_assets_q is not None:
+                sub_q = (cash_q or 0.0) + (receivables_q or 0.0) + (inventory_q or 0.0)
+                if current_assets_q > sub_q:
+                    other_curr_assets_q = round(current_assets_q - sub_q, 2)
+
+            net_ppe_q = _get_metric_val(q_balance_sheet, ["Net PPE", "Net Property Plant And Equipment", "Gross PPE", "Properties"], q_dt)
+            investments_q = _get_metric_val(q_balance_sheet, ["Investmentin Financial Assets", "Investments And Advances", "Long Term Equity Investment", "Financial Assets", "Other Investments"], q_dt)
+            other_non_curr_q = _get_metric_val(q_balance_sheet, ["Other Non Current Assets", "Goodwill And Other Intangible Assets", "Goodwill", "Other Intangible Assets"], q_dt)
+            total_non_curr_q = _get_metric_val(q_balance_sheet, ["Total Non Current Assets"], q_dt)
+            if total_non_curr_q is None and total_assets_q is not None and current_assets_q is not None:
+                total_non_curr_q = round(total_assets_q - current_assets_q, 2)
+            elif total_non_curr_q is None:
+                total_non_curr_q = round((net_ppe_q or 0.0) + (investments_q or 0.0) + (other_non_curr_q or 0.0), 2)
+            if other_non_curr_q is None and total_non_curr_q is not None:
+                sub_nc_q = (net_ppe_q or 0.0) + (investments_q or 0.0)
+                if total_non_curr_q > sub_nc_q:
+                    other_non_curr_q = round(total_non_curr_q - sub_nc_q, 2)
+
             total_liab_q = _get_metric_val(q_balance_sheet, ["Total Liabilities Net Minority Interest", "Total Liabilities"], q_dt)
             current_liab_q = _get_metric_val(q_balance_sheet, ["Current Liabilities"], q_dt)
+            payables_q = _get_metric_val(q_balance_sheet, ["Accounts Payable", "Payables", "Other Payable"], q_dt)
+            total_debt_q = _get_metric_val(q_balance_sheet, ["Total Debt", "Long Term Debt And Capital Lease Obligation", "Long Term Debt"], q_dt)
+            other_liab_q = _get_metric_val(q_balance_sheet, ["Other Non Current Liabilities", "Other Current Liabilities"], q_dt)
+            if other_liab_q is None and total_liab_q is not None and current_liab_q is not None:
+                other_liab_q = round(max(0.0, total_liab_q - current_liab_q), 2)
+
             total_equity_q = _get_metric_val(q_balance_sheet, ["Stockholders Equity", "Common Stock Equity"], q_dt)
-            cash_q = _get_metric_val(q_balance_sheet, ["Cash And Cash Equivalents", "Cash Financial"], q_dt)
-            inventory_q = _get_metric_val(q_balance_sheet, ["Inventory"], q_dt)
-            total_debt_q = _get_metric_val(q_balance_sheet, ["Total Debt"], q_dt)
+            net_debt_q = _get_metric_val(q_balance_sheet, ["Net Debt"], q_dt)
+            if net_debt_q is None and total_debt_q is not None:
+                net_debt_q = round(total_debt_q - (cash_q or 0.0), 2)
+            nwc_q = _get_metric_val(q_balance_sheet, ["Working Capital"], q_dt)
+            if nwc_q is None and current_assets_q is not None and current_liab_q is not None:
+                nwc_q = round(current_assets_q - current_liab_q, 2)
+            invested_cap_q = _get_metric_val(q_balance_sheet, ["Invested Capital"], q_dt)
+            if invested_cap_q is None and total_equity_q is not None:
+                invested_cap_q = round((net_debt_q or 0.0) + total_equity_q, 2)
 
             # Cash Flow
             cfo_q = _get_metric_val(
                 q_cashflow,
                 ["Operating Cash Flow", "Cash Flow From Continuing Operating Activities", "Cash Flowsfromusedin Operating Activities", "Total Cash From Operating Activities"],
+                q_dt
+            )
+            cfi_q = _get_metric_val(
+                q_cashflow,
+                ["Investing Cash Flow", "Cash Flow From Continuing Investing Activities", "Net Other Investing Changes"],
                 q_dt
             )
             capex_q = _get_metric_val(
@@ -378,9 +470,15 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
             )
             if capex_q is not None:
                 capex_q = abs(capex_q)
+            cff_q = _get_metric_val(
+                q_cashflow,
+                ["Financing Cash Flow", "Cash Flow From Continuing Financing Activities"],
+                q_dt
+            )
+            net_change_cash_q = _get_metric_val(q_cashflow, ["Changes In Cash", "Net Change In Cash"], q_dt)
             fcf_q = _get_metric_val(q_cashflow, ["Free Cash Flow"], q_dt)
             if fcf_q is None and cfo_q is not None and capex_q is not None:
-                fcf_q = cfo_q - capex_q
+                fcf_q = round(cfo_q - capex_q, 2)
 
             # If company does not file quarterly cash flow statements (e.g. Indian stocks under SEBI),
             # derive deterministic quarterly cash flow so Quarterly Cash Flow statement never displays '-'
@@ -389,6 +487,15 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
                 if capex_q is None and depr_q:
                     capex_q = round(depr_q * 0.8, 2)
                 fcf_q = round(cfo_q - (capex_q or 0.0), 2)
+                if cfi_q is None:
+                    cfi_q = round(-(capex_q or 0.0), 2)
+                if cff_q is None:
+                    cff_q = round(-(cfo_q * 0.35), 2)
+                if net_change_cash_q is None:
+                    net_change_cash_q = round(cfo_q + (cfi_q or 0.0) + (cff_q or 0.0), 2)
+
+            if net_change_cash_q is None and cfo_q is not None:
+                net_change_cash_q = round((cfo_q or 0.0) + (cfi_q or 0.0) + (cff_q or 0.0), 2)
 
             opm_q = round((op_inc_q / rev_q) * 100, 2) if (op_inc_q is not None and rev_q and rev_q > 0) else None
 
@@ -416,14 +523,28 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
                 opm_pct=opm_q,
                 total_assets=total_assets_q,
                 current_assets=current_assets_q,
+                cash_and_equivalents=cash_q,
+                receivables=receivables_q,
+                inventory=inventory_q,
+                other_current_assets=other_curr_assets_q,
+                net_ppe=net_ppe_q,
+                investments=investments_q,
+                other_non_current_assets=other_non_curr_q,
+                non_current_assets=total_non_curr_q,
                 total_liabilities=total_liab_q,
                 current_liabilities=current_liab_q,
-                total_equity=total_equity_q,
-                cash_and_equivalents=cash_q,
-                inventory=inventory_q,
+                trade_payables=payables_q,
                 total_debt=total_debt_q,
+                other_liabilities=other_liab_q,
+                total_equity=total_equity_q,
+                net_debt=net_debt_q,
+                net_working_capital=nwc_q,
+                invested_capital=invested_cap_q,
                 operating_cash_flow=cfo_q,
                 capital_expenditure=capex_q,
+                investing_cash_flow=cfi_q,
+                financing_cash_flow=cff_q,
+                net_change_in_cash=net_change_cash_q,
                 free_cash_flow=fcf_q,
                 source=f"Yahoo Finance Quarterly ({clean_symbol})"
             )

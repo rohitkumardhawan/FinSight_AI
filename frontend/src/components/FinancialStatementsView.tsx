@@ -10,6 +10,7 @@ import {
   TrendingDown, 
   Database,
   Calendar,
+  Percent,
   Info,
   HelpCircle
 } from 'lucide-react';
@@ -17,6 +18,10 @@ import { CsvImportModal } from './CsvImportModal';
 import { API_BASE } from '@/lib/api';
 import { 
   formatFinancialValue, 
+  formatAccountingValue,
+  isAccountingDeduction,
+  formatPerShare,
+  formatPercent,
   getUnitLabel, 
   normalizeExchange 
 } from '@/lib/formatters';
@@ -32,6 +37,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
 }) => {
   const [activeTab, setActiveTab] = useState<'income' | 'balance' | 'cash_flow' | 'all'>('income');
   const [periodFilter, setPeriodFilter] = useState<'all' | 'FY' | 'quarterly'>('FY');
+  const [viewMode, setViewMode] = useState<'values' | 'common_size'>('values');
   const [periods, setPeriods] = useState<any[]>([]);
   const [companyInfo, setCompanyInfo] = useState<{
     id?: number;
@@ -74,11 +80,13 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
       // Sort ascending by fiscal year
       const sorted = [...rawPeriods].sort((a, b) => (a.fiscal_year || 0) - (b.fiscal_year || 0));
 
-      // Filter out columns where all core metrics (revenue, operating_income, net_income) are null/empty (e.g. blank FY2022)
+      // Filter out columns where all core metrics are null/empty
       const valid = sorted.filter((p: any) =>
         (p.revenue !== null && p.revenue !== undefined) ||
         (p.operating_income !== null && p.operating_income !== undefined) ||
-        (p.net_income !== null && p.net_income !== undefined)
+        (p.net_income !== null && p.net_income !== undefined) ||
+        (p.total_assets !== null && p.total_assets !== undefined) ||
+        (p.operating_cash_flow !== null && p.operating_cash_flow !== undefined)
       );
 
       setPeriods(valid.length > 0 ? valid : sorted);
@@ -108,7 +116,6 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
 
   const filteredPeriods = periods
     .filter((s) => {
-      // Hide columns where all core metrics are null/empty
       const hasCoreData = (
         (s.revenue !== null && s.revenue !== undefined) ||
         (s.operating_income !== null && s.operating_income !== undefined) ||
@@ -144,62 +151,405 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     return `"${str.replace(/"/g, '""')}"`;
   };
 
+  // Helper row configuration interface
+  interface RowDef {
+    label: string;
+    getValue: (stmt: any) => number | null | undefined;
+    getBase?: (stmt: any) => number | null | undefined;
+    isBold?: boolean;
+    indent?: boolean;
+    isDeduction?: boolean;
+    showGrowth?: boolean;
+    isSubrow?: boolean;
+    isPercent?: boolean;
+    isMultiple?: boolean;
+    isPerShare?: boolean;
+    highlight?: 'sky' | 'emerald' | 'cyan' | 'default';
+  }
+
+  // Define Income Statement rows (strict waterfall order)
+  const incomeStatementRows: RowDef[] = [
+    {
+      label: 'Revenue (Total Net Sales)',
+      getValue: (s) => s.revenue,
+      isBold: true,
+      highlight: 'sky',
+      showGrowth: true,
+    },
+    {
+      label: '(-) Cost of Goods Sold (COGS)',
+      getValue: (s) => s.cost_of_revenue ?? (s.revenue != null && s.gross_profit != null ? s.revenue - s.gross_profit : null),
+      indent: true,
+      isDeduction: true,
+    },
+    {
+      label: '= Gross Profit',
+      getValue: (s) => s.gross_profit ?? (s.revenue != null && s.cost_of_revenue != null ? s.revenue - s.cost_of_revenue : null),
+      isBold: true,
+      highlight: 'cyan',
+      showGrowth: true,
+    },
+    {
+      label: 'Gross Margin %',
+      getValue: (s) => {
+        const gp = s.gross_profit ?? (s.revenue != null && s.cost_of_revenue != null ? s.revenue - s.cost_of_revenue : null);
+        return gp != null && s.revenue ? (gp / s.revenue) * 100 : null;
+      },
+      indent: true,
+      isPercent: true,
+      isSubrow: true,
+    },
+    {
+      label: '(-) Operating Expenses (excl. D&A)',
+      getValue: (s) => {
+        const rev = s.revenue;
+        const gp = s.gross_profit ?? (rev != null && s.cost_of_revenue != null ? rev - s.cost_of_revenue : null);
+        const opInc = s.operating_income;
+        const da = Math.abs(s.depreciation_amortization || 0);
+        const eb = s.ebitda ?? (opInc != null ? opInc + da : null);
+        if (gp != null && eb != null) return gp - eb;
+        if (s.operating_expenses != null) return Math.max(0, s.operating_expenses - da);
+        return null;
+      },
+      indent: true,
+      isDeduction: true,
+    },
+    {
+      label: '= EBITDA',
+      getValue: (s) => s.ebitda ?? (s.operating_income != null ? s.operating_income + Math.abs(s.depreciation_amortization || 0) : null),
+      isBold: true,
+      highlight: 'sky',
+      showGrowth: true,
+    },
+    {
+      label: 'EBITDA Margin %',
+      getValue: (s) => {
+        const eb = s.ebitda ?? (s.operating_income != null ? s.operating_income + Math.abs(s.depreciation_amortization || 0) : null);
+        return eb != null && s.revenue ? (eb / s.revenue) * 100 : s.ebitda_margin_pct;
+      },
+      indent: true,
+      isPercent: true,
+      isSubrow: true,
+    },
+    {
+      label: '(-) Depreciation & Amortization (D&A)',
+      getValue: (s) => (s.depreciation_amortization != null ? Math.abs(s.depreciation_amortization) : null),
+      indent: true,
+      isDeduction: true,
+    },
+    {
+      label: '= Operating Income (EBIT)',
+      getValue: (s) => s.operating_income,
+      isBold: true,
+      highlight: 'sky',
+      showGrowth: true,
+    },
+    {
+      label: 'Operating Margin (OPM %)',
+      getValue: (s) => s.opm_pct ?? (s.operating_income != null && s.revenue ? (s.operating_income / s.revenue) * 100 : null),
+      indent: true,
+      isPercent: true,
+      isSubrow: true,
+    },
+    {
+      label: '(+) Other Income / (Expense)',
+      getValue: (s) => s.other_income,
+      indent: true,
+    },
+    {
+      label: '(-) Interest Expense',
+      getValue: (s) => (s.interest_expense != null ? Math.abs(s.interest_expense) : null),
+      indent: true,
+      isDeduction: true,
+    },
+    {
+      label: '= Profit Before Tax (EBT)',
+      getValue: (s) => s.profit_before_tax ?? (s.operating_income != null ? s.operating_income + (s.other_income || 0) - (s.interest_expense || 0) : null),
+      isBold: true,
+    },
+    {
+      label: '(-) Income Tax Expense',
+      getValue: (s) => (s.tax_expense != null ? Math.abs(s.tax_expense) : null),
+      indent: true,
+      isDeduction: true,
+    },
+    {
+      label: 'Effective Tax Rate %',
+      getValue: (s) => {
+        const pbt = s.profit_before_tax ?? (s.operating_income != null ? s.operating_income + (s.other_income || 0) - (s.interest_expense || 0) : null);
+        return s.tax_expense != null && pbt && pbt > 0 ? (Math.abs(s.tax_expense) / pbt) * 100 : null;
+      },
+      indent: true,
+      isPercent: true,
+      isSubrow: true,
+    },
+    {
+      label: '= Net Income',
+      getValue: (s) => s.net_income,
+      isBold: true,
+      highlight: 'emerald',
+      showGrowth: true,
+    },
+    {
+      label: 'Net Margin %',
+      getValue: (s) => (s.net_income != null && s.revenue ? (s.net_income / s.revenue) * 100 : null),
+      indent: true,
+      isPercent: true,
+      isSubrow: true,
+    },
+    {
+      label: 'Diluted EPS',
+      getValue: (s) => s.eps,
+      indent: true,
+      isPerShare: true,
+      isSubrow: true,
+    },
+  ];
+
+  // Define Balance Sheet rows (Assets = Liabilities + Equity)
+  const balanceSheetRows: RowDef[] = [
+    // Current Assets
+    {
+      label: 'Cash & Cash Equivalents',
+      getValue: (s) => s.cash_and_equivalents,
+      getBase: (s) => s.total_assets,
+      indent: true,
+    },
+    {
+      label: 'Trade Accounts Receivable',
+      getValue: (s) => s.receivables,
+      getBase: (s) => s.total_assets,
+      indent: true,
+    },
+    {
+      label: 'Inventories',
+      getValue: (s) => s.inventory,
+      getBase: (s) => s.total_assets,
+      indent: true,
+    },
+    {
+      label: 'Other Current Assets',
+      getValue: (s) => s.other_current_assets,
+      getBase: (s) => s.total_assets,
+      indent: true,
+    },
+    {
+      label: '= Total Current Assets',
+      getValue: (s) => s.current_assets,
+      getBase: (s) => s.total_assets,
+      isBold: true,
+      highlight: 'sky',
+      showGrowth: true,
+    },
+    // Non-Current Assets
+    {
+      label: 'Property, Plant & Equipment (Net PPE)',
+      getValue: (s) => s.net_ppe,
+      getBase: (s) => s.total_assets,
+      indent: true,
+    },
+    {
+      label: 'Investments & Financial Assets',
+      getValue: (s) => s.investments,
+      getBase: (s) => s.total_assets,
+      indent: true,
+    },
+    {
+      label: 'Other Non-Current Assets',
+      getValue: (s) => s.other_non_current_assets,
+      getBase: (s) => s.total_assets,
+      indent: true,
+    },
+    {
+      label: '= Total Non-Current Assets',
+      getValue: (s) => s.non_current_assets ?? (s.total_assets != null && s.current_assets != null ? s.total_assets - s.current_assets : null),
+      getBase: (s) => s.total_assets,
+      isBold: true,
+      highlight: 'sky',
+    },
+    // Total Assets
+    {
+      label: '= Total Assets',
+      getValue: (s) => s.total_assets,
+      getBase: (s) => s.total_assets,
+      isBold: true,
+      highlight: 'cyan',
+      showGrowth: true,
+    },
+    // Liabilities
+    {
+      label: 'Trade Accounts Payable',
+      getValue: (s) => s.trade_payables,
+      getBase: (s) => s.total_assets,
+      indent: true,
+    },
+    {
+      label: 'Current Liabilities',
+      getValue: (s) => s.current_liabilities,
+      getBase: (s) => s.total_assets,
+      indent: true,
+    },
+    {
+      label: 'Total Debt (Short + Long Term)',
+      getValue: (s) => s.total_debt,
+      getBase: (s) => s.total_assets,
+      indent: true,
+    },
+    {
+      label: 'Other Non-Current Liabilities',
+      getValue: (s) => s.other_liabilities ?? (s.total_liabilities != null && s.current_liabilities != null ? Math.max(0, s.total_liabilities - s.current_liabilities) : null),
+      getBase: (s) => s.total_assets,
+      indent: true,
+    },
+    {
+      label: '= Total Liabilities',
+      getValue: (s) => s.total_liabilities,
+      getBase: (s) => s.total_assets,
+      isBold: true,
+      highlight: 'sky',
+      showGrowth: true,
+    },
+    // Equity
+    {
+      label: "= Total Stockholders' Equity",
+      getValue: (s) => s.total_equity,
+      getBase: (s) => s.total_assets,
+      isBold: true,
+      highlight: 'emerald',
+      showGrowth: true,
+    },
+    // DCF Memo Rows
+    {
+      label: 'Net Debt (Total Debt - Cash)',
+      getValue: (s) => s.net_debt ?? (s.total_debt != null ? s.total_debt - (s.cash_and_equivalents || 0) : null),
+      getBase: (s) => s.total_assets,
+      indent: true,
+      isSubrow: true,
+    },
+    {
+      label: 'Net Working Capital (Current Assets - Current Liab)',
+      getValue: (s) => s.net_working_capital ?? (s.current_assets != null && s.current_liabilities != null ? s.current_assets - s.current_liabilities : null),
+      getBase: (s) => s.total_assets,
+      indent: true,
+      isSubrow: true,
+    },
+    {
+      label: 'Invested Capital (Net Debt + Equity)',
+      getValue: (s) => {
+        if (s.invested_capital != null) return s.invested_capital;
+        const nd = s.net_debt ?? (s.total_debt != null ? s.total_debt - (s.cash_and_equivalents || 0) : 0);
+        return s.total_equity != null ? nd + s.total_equity : null;
+      },
+      getBase: (s) => s.total_assets,
+      indent: true,
+      isSubrow: true,
+    },
+  ];
+
+  // Define Cash Flow Statement rows (waterfall order)
+  const cashFlowRows: RowDef[] = [
+    {
+      label: 'Cash Flow from Operating Activities (OCF)',
+      getValue: (s) => s.operating_cash_flow,
+      getBase: (s) => s.revenue,
+      isBold: true,
+      highlight: 'emerald',
+      showGrowth: true,
+    },
+    {
+      label: 'Memo: D&A Non-Cash Add-Back',
+      getValue: (s) => (s.depreciation_amortization != null ? Math.abs(s.depreciation_amortization) : null),
+      getBase: (s) => s.revenue,
+      indent: true,
+      isSubrow: true,
+    },
+    {
+      label: 'Cash Flow from Investing Activities (CFI)',
+      getValue: (s) => s.investing_cash_flow ?? (s.capital_expenditure ? -Math.abs(s.capital_expenditure) : null),
+      getBase: (s) => s.revenue,
+      isDeduction: false, // Signed value; negatives auto-parenthesized
+    },
+    {
+      label: '(-) Capital Expenditures (CapEx)',
+      getValue: (s) => (s.capital_expenditure != null ? Math.abs(s.capital_expenditure) : null),
+      getBase: (s) => s.revenue,
+      indent: true,
+      isDeduction: true,
+    },
+    {
+      label: 'Cash Flow from Financing Activities (CFF)',
+      getValue: (s) => s.financing_cash_flow,
+      getBase: (s) => s.revenue,
+      isDeduction: false, // Signed value; negatives auto-parenthesized
+    },
+    {
+      label: '= Net Change in Cash (OCF + CFI + CFF)',
+      getValue: (s) => s.net_change_in_cash ?? ((s.operating_cash_flow || 0) + (s.investing_cash_flow || 0) + (s.financing_cash_flow || 0)),
+      getBase: (s) => s.revenue,
+      isBold: true,
+    },
+    {
+      label: '= Free Cash Flow (OCF - CapEx)',
+      getValue: (s) => s.free_cash_flow ?? (s.operating_cash_flow != null && s.capital_expenditure != null ? s.operating_cash_flow - Math.abs(s.capital_expenditure) : null),
+      getBase: (s) => s.revenue,
+      isBold: true,
+      highlight: 'emerald',
+      showGrowth: true,
+    },
+    {
+      label: 'CFO / EBITDA Cash Conversion %',
+      getValue: (s) => {
+        const eb = s.ebitda ?? (s.operating_income != null ? s.operating_income + Math.abs(s.depreciation_amortization || 0) : null);
+        return s.operating_cash_flow != null && eb && eb > 0 ? (s.operating_cash_flow / eb) * 100 : null;
+      },
+      indent: true,
+      isPercent: true,
+      isSubrow: true,
+    },
+  ];
+
+  // Export sanitized CSV
   const handleExportCsv = () => {
     if (!filteredPeriods || filteredPeriods.length === 0) return;
 
+    const unitSuffix = viewMode === 'common_size' ? '% of Base' : getUnitLabel(companyInfo.currency);
     const headers = [
-      `Financial Line Item (${getUnitLabel(companyInfo.currency)})`,
+      `Financial Line Item (${unitSuffix})`,
       ...filteredPeriods.map((p) => p.fiscal_period || `FY${p.fiscal_year}`)
     ];
 
     const rows: string[][] = [];
 
-    const incomeItems = [
-      { label: 'Revenue (Total Net Sales)', key: 'revenue' },
-      { label: 'Cost of Goods Sold (COGS)', key: 'cost_of_revenue' },
-      { label: 'Gross Profit', key: 'gross_profit' },
-      { label: 'Operating Income (EBIT)', key: 'operating_income' },
-      { label: 'Operating Expenses', key: 'operating_expenses' },
-      { label: 'Net Income', key: 'net_income' },
-    ];
-
-    const balanceItems = [
-      { label: 'Cash & Cash Equivalents', key: 'cash_and_equivalents' },
-      { label: 'Current Assets', key: 'current_assets' },
-      { label: 'Total Assets', key: 'total_assets' },
-      { label: 'Current Liabilities', key: 'current_liabilities' },
-      { label: 'Total Debt (Short + Long Term)', key: 'total_debt' },
-      { label: 'Total Liabilities', key: 'total_liabilities' },
-      { label: "Total Stockholders' Equity", key: 'total_equity' },
-    ];
-
-    const cashFlowItems = [
-      { label: 'Cash Flow from Operations (OCF)', key: 'operating_cash_flow' },
-      { label: 'Capital Expenditures (CapEx)', key: 'capital_expenditure' },
-      { label: 'Free Cash Flow (FCF)', key: 'free_cash_flow' },
-      { label: 'Depreciation & Amortization', key: 'depreciation_amortization' },
-    ];
-
-    const addSection = (sectionTitle: string, items: { label: string; key: string }[]) => {
+    const addSection = (sectionTitle: string, itemDefs: RowDef[]) => {
       rows.push([sectionTitle, ...filteredPeriods.map(() => '')]);
-      items.forEach((item) => {
+      itemDefs.forEach((item) => {
         const rowVals = filteredPeriods.map((p) => {
-          const raw = p[item.key];
+          const raw = item.getValue(p);
           if (raw === null || raw === undefined) return 'N/A';
-          return formatFinancialValue(raw, companyInfo.currency);
+          if (item.isPercent) return `${raw.toFixed(2)}%`;
+          if (item.isPerShare) return formatPerShare(raw, companyInfo.currency);
+          if (viewMode === 'common_size') {
+            const base = item.getBase ? item.getBase(p) : p.revenue;
+            if (!base || base === 0) return 'N/A';
+            const pct = (raw / base) * 100;
+            const shouldParentheses = pct < 0 || (item.isDeduction && pct > 0);
+            const absPct = Math.abs(pct).toFixed(2);
+            return shouldParentheses ? `(${absPct}%)` : `${absPct}%`;
+          }
+          return formatAccountingValue(raw, companyInfo.currency, item.isDeduction);
         });
         rows.push([item.label, ...rowVals]);
       });
     };
 
     if (activeTab === 'income' || activeTab === 'all') {
-      addSection('INCOME STATEMENT', incomeItems);
+      addSection('INCOME STATEMENT', incomeStatementRows);
     }
     if (activeTab === 'balance' || activeTab === 'all') {
-      addSection('BALANCE SHEET', balanceItems);
+      addSection('BALANCE SHEET', balanceSheetRows);
     }
     if (activeTab === 'cash_flow' || activeTab === 'all') {
-      addSection('CASH FLOW STATEMENT', cashFlowItems);
+      addSection('CASH FLOW STATEMENT', cashFlowRows);
     }
 
     const csvContent = [
@@ -212,7 +562,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     const link = document.createElement('a');
     const safeSymbol = (companyInfo.symbol || 'COMPANY').replace(/[^a-zA-Z0-9_.-]/g, '_');
     link.setAttribute('href', url);
-    link.setAttribute('download', `${safeSymbol}_Financials.csv`);
+    link.setAttribute('download', `${safeSymbol}_${viewMode === 'common_size' ? 'CommonSize_' : ''}Financials.csv`);
     document.body.appendChild(link);
     link.click();
     document.body.removeChild(link);
@@ -241,35 +591,98 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     );
   };
 
-  const renderLineItem = (
-    label: string,
-    key: string,
-    isBold: boolean = false,
-    indent: boolean = false,
-    showGrowth: boolean = false
-  ) => {
+  // Render an individual statement row with institutional formatting
+  const renderRow = (config: RowDef) => {
+    const {
+      label,
+      getValue,
+      getBase,
+      isBold = false,
+      indent = false,
+      isDeduction = false,
+      showGrowth = false,
+      isSubrow = false,
+      isPercent = false,
+      isMultiple = false,
+      isPerShare = false,
+      highlight = 'default',
+    } = config;
+
+    let rowBg = 'hover:bg-white/[0.03]';
+    let cellText = 'text-slate-200';
+    let stickyBg = 'bg-[#11141B]';
+
+    if (highlight === 'emerald') {
+      rowBg = 'bg-emerald-500/[0.04] hover:bg-emerald-500/[0.07] border-b border-emerald-500/20';
+      cellText = 'font-bold text-emerald-300';
+      stickyBg = 'bg-[#121c1a]';
+    } else if (highlight === 'sky') {
+      rowBg = 'bg-sky-500/[0.03] hover:bg-sky-500/[0.06] border-b border-sky-500/20';
+      cellText = 'font-bold text-sky-200';
+      stickyBg = 'bg-[#141822]';
+    } else if (highlight === 'cyan') {
+      rowBg = 'bg-cyan-500/[0.03] hover:bg-cyan-500/[0.06] border-b border-cyan-500/20';
+      cellText = 'font-bold text-cyan-200';
+      stickyBg = 'bg-[#131b20]';
+    } else if (isBold) {
+      rowBg = 'bg-white/[0.02] hover:bg-white/[0.05]';
+      cellText = 'font-semibold text-white';
+      stickyBg = 'bg-[#131720]';
+    }
+
+    if (isSubrow) {
+      rowBg = 'hover:bg-white/[0.02] border-b border-white/[0.03]';
+      cellText = 'text-xs text-indigo-300/90 font-medium';
+    }
+
     return (
-      <tr className={`border-b border-white/[0.05] hover:bg-white/[0.03] transition-colors ${isBold ? 'bg-sky-500/[0.04]' : ''}`}>
-        <td className={`py-2.5 px-4 text-xs sticky left-0 z-10 border-r border-white/[0.06] ${isBold ? 'font-bold text-white bg-[#141822]' : 'text-slate-300 bg-[#11141B]'} ${indent ? 'pl-8' : ''}`}>
+      <tr key={label} className={`border-b border-white/[0.05] transition-colors ${rowBg}`}>
+        <td
+          className={`py-2 px-4 text-xs sticky left-0 z-10 border-r border-white/[0.06] ${stickyBg} ${
+            isBold ? 'font-bold text-white' : isSubrow ? 'text-slate-400 font-normal italic' : 'text-slate-300'
+          } ${indent ? 'pl-8' : ''}`}
+        >
           {label}
         </td>
         {filteredPeriods.map((stmt, idx) => {
-          let val = stmt[key] as number | null | undefined;
-          if (key === 'ebitda' && val == null && stmt.operating_income != null) {
-            val = stmt.operating_income + Math.abs(stmt.depreciation_amortization || 0);
+          const val = getValue(stmt);
+          const baseVal = getBase ? getBase(stmt) : stmt.revenue;
+          const prevVal = idx > 0 ? getValue(filteredPeriods[idx - 1]) : null;
+          const growth = showGrowth && !isPercent && !isSubrow && viewMode === 'values' ? calculateGrowth(val, prevVal) : null;
+          const isNegative = isAccountingDeduction(val, isDeduction);
+
+          let cellDisplay = '—';
+          if (val !== null && val !== undefined) {
+            if (isPercent) {
+              cellDisplay = formatPercent(val);
+            } else if (isMultiple) {
+              cellDisplay = `${val.toFixed(2)}x`;
+            } else if (isPerShare) {
+              cellDisplay = formatPerShare(val, companyInfo.currency);
+            } else if (viewMode === 'common_size') {
+              if (baseVal && baseVal !== 0) {
+                const pct = (val / baseVal) * 100;
+                const shouldParentheses = pct < 0 || (isDeduction && pct > 0);
+                const absPct = Math.abs(pct).toFixed(1);
+                cellDisplay = shouldParentheses ? `(${absPct}%)` : `${absPct}%`;
+              } else {
+                cellDisplay = '—';
+              }
+            } else {
+              cellDisplay = formatAccountingValue(val, companyInfo.currency, isDeduction);
+            }
           }
-          let prevVal = idx > 0 ? (filteredPeriods[idx - 1][key] as number | null | undefined) : null;
-          if (key === 'ebitda' && prevVal == null && idx > 0 && filteredPeriods[idx - 1].operating_income != null) {
-            prevVal = filteredPeriods[idx - 1].operating_income + Math.abs(filteredPeriods[idx - 1].depreciation_amortization || 0);
-          }
-          const growth = showGrowth ? calculateGrowth(val, prevVal) : null;
+
+          const valueColor = isNegative && !isSubrow && !isPercent
+            ? 'text-rose-300/85 font-mono'
+            : isSubrow && isPercent
+            ? 'text-indigo-400 font-semibold'
+            : cellText;
 
           return (
-            <td key={idx} className="py-2.5 px-4 text-right font-mono tabular-nums text-xs">
+            <td key={idx} className="py-2 px-4 text-right font-mono tabular-nums text-xs">
               <div className="flex flex-col items-end gap-0.5">
-                <span className={isBold ? 'font-bold text-sky-200' : 'text-slate-200'}>
-                  {formatFinancialValue(val, companyInfo.currency)}
-                </span>
+                <span className={valueColor}>{cellDisplay}</span>
                 {growth !== null && renderGrowthBadge(growth)}
               </div>
             </td>
@@ -278,6 +691,28 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
       </tr>
     );
   };
+
+  const renderSectionBanner = (title: string, colorClass: string = 'text-sky-400') => (
+    <tr key={title} className="bg-[#0C0E14]">
+      <td
+        colSpan={filteredPeriods.length + 1}
+        className={`py-2 px-4 text-[11px] font-bold tracking-wider uppercase ${colorClass} border-t border-b border-white/[0.06] font-mono sticky left-0 bg-[#0C0E14] z-10`}
+      >
+        {title}
+      </td>
+    </tr>
+  );
+
+  const renderHairlineDivider = (title: string) => (
+    <tr key={title} className="bg-[#0A0C10] border-t-2 border-white/[0.12]">
+      <td
+        colSpan={filteredPeriods.length + 1}
+        className="py-1.5 px-4 text-[10px] font-semibold tracking-wider uppercase text-slate-400 font-mono sticky left-0 bg-[#0A0C10] z-10"
+      >
+        {title}
+      </td>
+    </tr>
+  );
 
   const unitLabel = getUnitLabel(companyInfo.currency);
 
@@ -291,7 +726,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
               <FileSpreadsheet className="h-3.5 w-3.5" />
               FINANCIAL STATEMENTS MODULE
             </span>
-            <span className="text-xs text-slate-400 font-medium">Phase 4 Institutional Architecture</span>
+            <span className="text-xs text-slate-400 font-medium">Institutional 3-Statement Architecture</span>
           </div>
 
           <h1 className="text-2xl font-bold tracking-tight text-white mt-1.5 flex items-center gap-2.5">
@@ -300,14 +735,16 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
             <span className="px-2 py-0.5 text-xs font-semibold bg-navy-800 text-slate-300 border border-navy-700 rounded">
               {companyInfo.exchange}
             </span>
-            {loading && <RefreshCw className="h-4 w-4 animate-spin text-gold-400" />}
+            {loading && <RefreshCw className="h-4 w-4 animate-spin text-sky-400" />}
           </h1>
 
           <div className="flex items-center gap-2 mt-1 text-xs text-slate-400">
             <Database className="h-3 w-3 text-cyan-400" />
             <span>{dataSourceNotice}</span>
             <span>•</span>
-            <span className="text-emerald-400 font-mono">Currency: {companyInfo.currency} ({unitLabel})</span>
+            <span className="text-emerald-400 font-mono">
+              Base Units: {companyInfo.currency} ({unitLabel}) {viewMode === 'common_size' && '• Common-Size (% of Sales / Assets)'}
+            </span>
           </div>
         </div>
 
@@ -316,13 +753,13 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
           <button
             type="button"
             onClick={() => loadData(true)}
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 hover:border-navy-700 text-xs font-medium text-slate-300 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 text-xs font-medium transition-colors"
           >
             <RefreshCw className="h-3.5 w-3.5" />
             <span>Refresh</span>
           </button>
 
-          {/* One-Click Export to CSV (Feature 3) */}
+          {/* One-Click Export to CSV */}
           <button
             type="button"
             onClick={handleExportCsv}
@@ -338,17 +775,16 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
             href={`${API_BASE}/statements/csv-template?type=combined`}
             target="_blank"
             rel="noreferrer"
-            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 hover:border-gold-500/30 text-xs font-medium text-gold-400 transition-colors"
+            className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-white/[0.04] hover:bg-white/[0.08] border border-white/[0.08] text-slate-300 text-xs font-medium transition-colors"
           >
-            <FileSpreadsheet className="h-3.5 w-3.5" />
+            <FileSpreadsheet className="h-3.5 w-3.5 text-sky-400" />
             <span>CSV Template</span>
           </a>
 
-          {/* Core Phase 3/4 Requirement: Visible "Import CSV" button */}
           <button
             type="button"
             onClick={() => setIsCsvModalOpen(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-semibold font-bold text-xs transition-all shadow-lg shadow-gold-500/20 active:scale-95"
+            className="flex items-center gap-2 px-4 py-2 rounded-xl bg-sky-500 hover:bg-sky-400 text-white font-bold text-xs transition-all shadow-lg shadow-sky-500/20 active:scale-95"
           >
             <Upload className="h-3.5 w-3.5" />
             <span>Import CSV</span>
@@ -356,8 +792,8 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
         </div>
       </div>
 
-      {/* Tabs & Period Navigation */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 bg-[#11141B] p-2 rounded-xl border border-white/[0.07]">
+      {/* Tabs & Period Navigation & Common-Size Toggle */}
+      <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-3 bg-[#11141B] p-2 rounded-xl border border-white/[0.07]">
         {/* Statement Type Tabs */}
         <div className="flex items-center gap-1 overflow-x-auto">
           <button
@@ -402,57 +838,91 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
           </button>
         </div>
 
-        {/* Period Filter (Annual | Quarterly Toggle Pill) */}
-        <div className="flex items-center gap-2 self-end sm:self-auto text-xs">
-          <span className="text-slate-400 text-[11px] font-medium flex items-center gap-1">
-            <Calendar className="h-3 w-3 text-gold-400" />
-            Reporting Horizon:
-          </span>
-          <div className="bg-[#090B0F] p-1 rounded-lg border border-white/[0.08] flex gap-1 shadow-inner">
-            <button
-              onClick={() => setPeriodFilter('FY')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                periodFilter === 'FY'
-                  ? 'bg-sky-500 text-white shadow-sm font-bold'
-                  : 'text-slate-400 hover:text-white hover:bg-navy-800'
-              }`}
-            >
-              <span>Annual</span>
-              {annualCount > 0 && (
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                  periodFilter === 'FY' ? 'bg-navy-950/20 text-navy-950 font-bold' : 'bg-navy-800 text-slate-400'
-                }`}>
-                  {annualCount}Y
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setPeriodFilter('quarterly')}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
-                periodFilter === 'quarterly'
-                  ? 'bg-sky-500 text-white shadow-sm font-bold'
-                  : 'text-slate-400 hover:text-white hover:bg-navy-800'
-              }`}
-            >
-              <span>Quarterly</span>
-              {quarterlyCount > 0 && (
-                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
-                  periodFilter === 'quarterly' ? 'bg-navy-950/20 text-navy-950 font-bold' : 'bg-navy-800 text-slate-400'
-                }`}>
-                  {quarterlyCount}Q
-                </span>
-              )}
-            </button>
-            <button
-              onClick={() => setPeriodFilter('all')}
-              className={`px-2.5 py-1.5 rounded-lg text-xs font-medium transition-all ${
-                periodFilter === 'all'
-                  ? 'bg-navy-800 text-white font-bold'
-                  : 'text-slate-400 hover:text-white'
-              }`}
-            >
-              All
-            </button>
+        {/* Controls: Common-Size Toggle + Annual | Quarterly Toggle */}
+        <div className="flex items-center gap-3 flex-wrap self-end lg:self-auto text-xs">
+          {/* Common-Size View Toggle (Values | Common-Size %) */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400 text-[11px] font-medium flex items-center gap-1">
+              <Percent className="h-3 w-3 text-cyan-400" />
+              Display:
+            </span>
+            <div className="bg-[#090B0F] p-1 rounded-lg border border-white/[0.08] flex gap-1 shadow-inner">
+              <button
+                onClick={() => setViewMode('values')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                  viewMode === 'values'
+                    ? 'bg-sky-500 text-white shadow-sm font-bold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                Values
+              </button>
+              <button
+                onClick={() => setViewMode('common_size')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all ${
+                  viewMode === 'common_size'
+                    ? 'bg-cyan-500 text-white shadow-sm font-bold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+                title="Common-Size analysis (% of Net Sales for Income Statement & Cash Flow, % of Total Assets for Balance Sheet)"
+              >
+                Common-Size %
+              </button>
+            </div>
+          </div>
+
+          {/* Period Filter (Annual | Quarterly Toggle Pill) */}
+          <div className="flex items-center gap-1.5">
+            <span className="text-slate-400 text-[11px] font-medium flex items-center gap-1">
+              <Calendar className="h-3 w-3 text-sky-400" />
+              Horizon:
+            </span>
+            <div className="bg-[#090B0F] p-1 rounded-lg border border-white/[0.08] flex gap-1 shadow-inner">
+              <button
+                onClick={() => setPeriodFilter('FY')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                  periodFilter === 'FY'
+                    ? 'bg-sky-500 text-white shadow-sm font-bold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>Annual</span>
+                {annualCount > 0 && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                    periodFilter === 'FY' ? 'bg-navy-950/20 text-navy-950 font-bold' : 'bg-navy-800 text-slate-400'
+                  }`}>
+                    {annualCount}Y
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setPeriodFilter('quarterly')}
+                className={`px-2.5 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                  periodFilter === 'quarterly'
+                    ? 'bg-sky-500 text-white shadow-sm font-bold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                <span>Quarterly</span>
+                {quarterlyCount > 0 && (
+                  <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                    periodFilter === 'quarterly' ? 'bg-navy-950/20 text-navy-950 font-bold' : 'bg-navy-800 text-slate-400'
+                  }`}>
+                    {quarterlyCount}Q
+                  </span>
+                )}
+              </button>
+              <button
+                onClick={() => setPeriodFilter('all')}
+                className={`px-2 py-1 rounded-lg text-xs font-medium transition-all ${
+                  periodFilter === 'all'
+                    ? 'bg-navy-800 text-white font-bold'
+                    : 'text-slate-400 hover:text-white'
+                }`}
+              >
+                All
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -460,7 +930,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
       {/* Financial Statement Tables Container */}
       {!loading && periods.length === 0 ? (
         <div className="flex flex-col items-center justify-center min-h-[350px] text-center p-8 bg-navy-900/50 rounded-2xl border border-navy-800 shadow-lg">
-          <div className="h-12 w-12 rounded-full bg-navy-800 text-gold-400 flex items-center justify-center mb-3">
+          <div className="h-12 w-12 rounded-full bg-navy-800 text-sky-400 flex items-center justify-center mb-3">
             <HelpCircle className="h-6 w-6" />
           </div>
           <h3 className="text-base font-semibold text-white">Financial Statements Standby</h3>
@@ -469,132 +939,93 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
           </p>
           <button
             onClick={() => loadData(true)}
-            className="mt-4 px-4 py-2 rounded-lg bg-navy-800 hover:bg-navy-750 text-xs font-medium text-gold-400 border border-gold-500/30 flex items-center gap-1.5 transition-all shadow-md"
+            className="mt-4 px-4 py-2 rounded-lg bg-navy-800 hover:bg-navy-750 text-xs font-medium text-sky-400 border border-sky-500/30 flex items-center gap-1.5 transition-all shadow-md"
           >
             <RefreshCw className="h-3.5 w-3.5" /> Re-sync Statements
           </button>
         </div>
       ) : (
         <div className="bg-[#11141B] border border-white/[0.07] rounded-xl overflow-hidden shadow-[0_1px_0_0_rgba(255,255,255,0.04)_inset]">
-        <div className="overflow-x-auto">
-          <table className="w-full text-left">
-            <thead className="bg-[#0C0E14] text-slate-400 text-[11px] font-mono uppercase tracking-wider border-b border-white/[0.06]">
-              <tr>
-                <th className="py-2.5 px-4 font-semibold text-slate-300 min-w-[240px] sticky left-0 bg-[#0C0E14] z-20 border-r border-white/[0.06]">
-                  Financial Line Item ({unitLabel})
-                </th>
-                {filteredPeriods.map((stmt, idx) => (
-                  <th key={idx} className="py-2.5 px-4 text-right font-mono font-bold text-white min-w-[120px]">
-                    <div className="flex flex-col items-end">
-                      <span className="text-sky-400 text-xs font-mono">
-                        {stmt.fiscal_period || `FY${stmt.fiscal_year}`}
-                      </span>
-                      <span className="text-[10px] text-slate-500 font-normal font-mono">
-                        {stmt.fiscal_year}
-                      </span>
-                    </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-left">
+              <thead className="bg-[#0C0E14] text-slate-400 text-[11px] font-mono uppercase tracking-wider border-b border-white/[0.06]">
+                <tr>
+                  <th className="py-2.5 px-4 font-semibold text-slate-300 min-w-[280px] sticky left-0 bg-[#0C0E14] z-20 border-r border-white/[0.06]">
+                    Financial Line Item {viewMode === 'common_size' ? '(% Common-Size)' : `(${unitLabel})`}
                   </th>
-                ))}
-              </tr>
-            </thead>
+                  {filteredPeriods.map((stmt, idx) => (
+                    <th key={idx} className="py-2.5 px-4 text-right font-mono font-bold text-white min-w-[125px]">
+                      <div className="flex flex-col items-end">
+                        <span className="text-sky-400 text-xs font-mono">
+                          {stmt.fiscal_period || `FY${stmt.fiscal_year}`}
+                        </span>
+                        <span className="text-[10px] text-slate-500 font-normal font-mono">
+                          {stmt.fiscal_year}
+                        </span>
+                      </div>
+                    </th>
+                  ))}
+                </tr>
+              </thead>
 
-            <tbody className="divide-y divide-navy-800/40">
-              {/* 1. INCOME STATEMENT SECTION */}
-              {(activeTab === 'income' || activeTab === 'all') && (
-                <>
-                  <tr className="bg-[#0C0E14]">
-                    <td
-                      colSpan={filteredPeriods.length + 1}
-                      className="py-2 px-4 text-[11px] font-bold tracking-wider uppercase text-sky-400 border-t border-b border-white/[0.06] font-mono sticky left-0 bg-[#0C0E14] z-10"
-                    >
-                      Income Statement
-                    </td>
-                  </tr>
-                  {renderLineItem('Revenue (Total Net Sales)', 'revenue', true, false, true)}
-                  {renderLineItem('Cost of Goods Sold (COGS)', 'cost_of_revenue', false, true)}
-                  {renderLineItem('Gross Profit', 'gross_profit', true, false, true)}
-                  {renderLineItem('EBITDA', 'ebitda', true, false, true)}
-                  <tr className="border-b border-white/[0.05] hover:bg-white/[0.03] transition-colors">
-                    <td className="py-2.5 px-4 text-xs sticky left-0 z-10 border-r border-white/[0.06] text-slate-300 bg-[#11141B] pl-8">
-                      EBITDA Margin %
-                    </td>
-                    {filteredPeriods.map((stmt, idx) => {
-                      const ebitdaVal = stmt.ebitda ?? (stmt.operating_income != null ? stmt.operating_income + Math.abs(stmt.depreciation_amortization || 0) : null);
-                      const m = stmt.ebitda_margin_pct ?? (ebitdaVal != null && stmt.revenue ? (ebitdaVal / stmt.revenue) * 100 : null);
-                      return (
-                        <td key={idx} className="py-2.5 px-4 text-right font-mono tabular-nums text-xs text-indigo-400 font-semibold">
-                          {m !== null && m !== undefined ? `${m.toFixed(1)}%` : '—'}
-                        </td>
-                      );
-                    })}
-                  </tr>
-                  {renderLineItem('Operating Income (EBIT)', 'operating_income', true, false, true)}
-                  {renderLineItem('Operating Expenses', 'operating_expenses', false, true)}
-                  {renderLineItem('Net Income', 'net_income', true, false, true)}
-                </>
-              )}
+              <tbody className="divide-y divide-white/[0.04]">
+                {/* 1. INCOME STATEMENT SECTION */}
+                {(activeTab === 'income' || activeTab === 'all') && (
+                  <>
+                    {renderSectionBanner('1. Income Statement (Waterfall)', 'text-sky-400')}
+                    {incomeStatementRows.map((r) => renderRow(r))}
+                  </>
+                )}
 
-              {/* 2. BALANCE SHEET SECTION */}
-              {(activeTab === 'balance' || activeTab === 'all') && (
-                <>
-                  <tr className="bg-[#0C0E14]">
-                    <td
-                      colSpan={filteredPeriods.length + 1}
-                      className="py-2.5 px-4 text-[11px] font-bold tracking-wider uppercase text-cyan-400 border-t border-b border-cyan-500/20"
-                    >
-                      Balance Sheet
-                    </td>
-                  </tr>
-                  {renderLineItem('Cash & Cash Equivalents', 'cash_and_equivalents', false, true)}
-                  {renderLineItem('Current Assets', 'current_assets', false, true)}
-                  {renderLineItem('Total Assets', 'total_assets', true, false, true)}
-                  {renderLineItem('Current Liabilities', 'current_liabilities', false, true)}
-                  {renderLineItem('Total Debt (Short + Long Term)', 'total_debt', false, true)}
-                  {renderLineItem('Total Liabilities', 'total_liabilities', true, false, true)}
-                  {renderLineItem("Total Stockholders' Equity", 'total_equity', true, false, true)}
-                </>
-              )}
+                {/* 2. BALANCE SHEET SECTION */}
+                {(activeTab === 'balance' || activeTab === 'all') && (
+                  <>
+                    {renderSectionBanner('2. Balance Sheet (Assets = Liabilities + Equity)', 'text-cyan-400')}
+                    {renderHairlineDivider('Current Assets')}
+                    {balanceSheetRows.slice(0, 5).map((r) => renderRow(r))}
+                    {renderHairlineDivider('Non-Current Assets')}
+                    {balanceSheetRows.slice(5, 9).map((r) => renderRow(r))}
+                    {renderHairlineDivider('Total Assets')}
+                    {balanceSheetRows.slice(9, 10).map((r) => renderRow(r))}
+                    {renderHairlineDivider('Liabilities')}
+                    {balanceSheetRows.slice(10, 15).map((r) => renderRow(r))}
+                    {renderHairlineDivider("Stockholders' Equity")}
+                    {balanceSheetRows.slice(15, 16).map((r) => renderRow(r))}
+                    {renderHairlineDivider('Analytical Memo Rows (DCF & Working Capital Inputs)')}
+                    {balanceSheetRows.slice(16).map((r) => renderRow(r))}
+                  </>
+                )}
 
-              {/* 3. CASH FLOW STATEMENT SECTION */}
-              {(activeTab === 'cash_flow' || activeTab === 'all') && (
-                <>
-                  <tr className="bg-[#0C0E14]">
-                    <td
-                      colSpan={filteredPeriods.length + 1}
-                      className="py-2.5 px-4 text-[11px] font-bold tracking-wider uppercase text-emerald-400 border-t border-b border-emerald-500/20"
-                    >
-                      Cash Flow Statement
-                    </td>
-                  </tr>
-                  {renderLineItem('Cash Flow from Operations (OCF)', 'operating_cash_flow', true, false, true)}
-                  {renderLineItem('Capital Expenditures (CapEx)', 'capital_expenditure', false, true)}
-                  {renderLineItem('Free Cash Flow (FCF)', 'free_cash_flow', true, false, true)}
-                  {renderLineItem('Depreciation & Amortization', 'depreciation_amortization', false, true)}
-                </>
-              )}
-            </tbody>
-          </table>
-        </div>
-
-        {/* Source Attribution Footer */}
-        <div className="p-4 bg-navy-950/70 border-t border-navy-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
-          <div className="flex items-center gap-2">
-            <Info className="h-4 w-4 text-slate-500 flex-shrink-0" />
-            <span>
-              All figures conform to institutional reporting standards. Missing values are preserved as <span className="font-mono text-slate-300">N/A</span>.
-            </span>
+                {/* 3. CASH FLOW STATEMENT SECTION */}
+                {(activeTab === 'cash_flow' || activeTab === 'all') && (
+                  <>
+                    {renderSectionBanner('3. Cash Flow Statement (Waterfall)', 'text-emerald-400')}
+                    {cashFlowRows.map((r) => renderRow(r))}
+                  </>
+                )}
+              </tbody>
+            </table>
           </div>
 
-          <div className="flex items-center gap-2 font-mono text-[11px]">
-            <span className="px-2 py-0.5 rounded bg-navy-800 text-slate-300 border border-navy-700">
-              Source: Neon PostgreSQL
-            </span>
-            <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
-              Verified Financial Data
-            </span>
+          {/* Source Attribution Footer */}
+          <div className="p-4 bg-navy-950/70 border-t border-navy-800 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-slate-400">
+            <div className="flex items-center gap-2">
+              <Info className="h-4 w-4 text-slate-500 flex-shrink-0" />
+              <span>
+                Standard Wall Street accounting formatting: deductions and cash outflows rendered as <span className="font-mono text-rose-300 font-medium">( ... )</span>. Missing values preserved as <span className="font-mono text-slate-300">N/A</span>.
+              </span>
+            </div>
+
+            <div className="flex items-center gap-2 font-mono text-[11px]">
+              <span className="px-2 py-0.5 rounded bg-navy-800 text-slate-300 border border-navy-700">
+                Source: Neon PostgreSQL
+              </span>
+              <span className="px-2 py-0.5 rounded bg-emerald-950 text-emerald-300 border border-emerald-800">
+                Verified 3-Statement Data
+              </span>
+            </div>
           </div>
         </div>
-      </div>
       )}
 
       {/* CSV Import Modal */}

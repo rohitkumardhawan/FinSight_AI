@@ -98,6 +98,46 @@ export function formatFinancialValue(
 }
 
 /**
+ * Institutional Wall Street Accounting Value Formatter:
+ * When value < 0 OR (isDeduction === true and value > 0), formats using accounting parentheses:
+ * e.g., (₹1,228.85 Cr) for INR or ($12.40B) for USD, without leading minus signs.
+ * Positive values, revenues, assets, and subtotals retain standard currency formatting.
+ */
+export function formatAccountingValue(
+  value: number | string | null | undefined,
+  currency?: string | null,
+  isDeduction: boolean = false,
+  options?: { showUnit?: boolean }
+): string {
+  if (value === null || value === undefined || value === '') return '—';
+  const num = typeof value === 'number' ? value : parseFloat(value);
+  if (isNaN(num)) return '—';
+
+  const isDeductionOrNegative = num < 0 || (isDeduction && num > 0);
+  const absVal = Math.abs(num);
+  const baseFormatted = formatFinancialValue(absVal, currency, options);
+  if (baseFormatted === '—') return '—';
+
+  if (isDeductionOrNegative) {
+    return `(${baseFormatted})`;
+  }
+  return baseFormatted;
+}
+
+/**
+ * Returns true if an accounting line item is a deduction or cash outflow.
+ */
+export function isAccountingDeduction(
+  value: number | string | null | undefined,
+  isDeduction: boolean = false
+): boolean {
+  if (value === null || value === undefined || value === '') return false;
+  const num = typeof value === 'number' ? value : parseFloat(value);
+  if (isNaN(num)) return false;
+  return num < 0 || (isDeduction && num > 0);
+}
+
+/**
  * Convenience alias for compact currency formatting ($B, $M, or ₹ Cr).
  */
 export function formatCurrencyCompact(
