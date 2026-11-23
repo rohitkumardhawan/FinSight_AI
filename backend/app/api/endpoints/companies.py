@@ -111,20 +111,49 @@ def get_or_fetch_company_analysis(
         )
     ).scalar_one_or_none()
 
-    # 2. Check 24-hour cache validity
-    if company and not refresh and company.last_synced_at and company.metadata_json:
-        # Check if currency mismatch fix is needed for cached row (e.g. INFY.NS or ADRs)
-        quote_meta = company.metadata_json.get("quote", {})
-        fin_curr = quote_meta.get("financial_currency") or quote_meta.get("financialCurrency")
-        curr = company.currency or quote_meta.get("currency")
-        is_mismatch_uncached = (
-            (fin_curr and curr and fin_curr.upper() != curr.upper() and not quote_meta.get("fx_converted_from"))
-            or (symbol_clean == "INFY.NS" and not quote_meta.get("fx_converted_from"))
-        )
-        if is_mismatch_uncached:
-            company = None
+    # 2. Check 24-hour cache validity & FX currency conversion status
+    should_refetch = bool(refresh)
+    if company and not should_refetch and company.last_synced_at and company.metadata_json:
+        quote_meta = (company.metadata_json or {}).get("quote", {})
+        fin_curr = (quote_meta.get("financial_currency") or quote_meta.get("financialCurrency") or "").upper()
+        curr = (company.currency or quote_meta.get("currency") or quote_meta.get("trading_currency") or "").upper()
+        fx_conv = quote_meta.get("fx_converted_from") or (company.metadata_json or {}).get("fx_converted_from")
 
-    if company and not refresh and company.last_synced_at and company.metadata_json:
+        # Invalidate if currencies differ but FX was never applied
+        if fin_curr and curr and fin_curr != curr and not fx_conv:
+            logger.info(f"Currency mismatch without FX detected for {symbol_clean} ({fin_curr} vs {curr}). Auto-invalidating.")
+            should_refetch = True
+
+        # Invalidate INFY.NS if not FX-converted
+        if symbol_clean == "INFY.NS" and not fx_conv:
+            logger.info(f"INFY.NS stale cache without FX detected. Auto-invalidating.")
+            should_refetch = True
+
+        # P/S safety guard on cached rows: if INR company has market_cap / latest_revenue > 100
+        if curr == "INR" and not fx_conv:
+            mcap = quote_meta.get("market_cap") or quote_meta.get("marketCap") or (company.metadata_json or {}).get("market_cap")
+            if mcap and float(mcap) > 0:
+                for p in (company.periods or []):
+                    mj = p.metrics_json or {}
+                    rev = mj.get("revenue")
+                    if rev and float(rev) > 0:
+                        if (float(mcap) / float(rev)) > 100:
+                            logger.info(
+                                f"Stale pre-FX cache detected for {symbol_clean} "
+                                f"(market_cap={mcap}, rev={rev}, ratio={float(mcap)/float(rev):.1f} > 100). Auto-invalidating."
+                            )
+                            should_refetch = True
+                            break
+
+        # Check cache age (<24 hours)
+        last_sync = company.last_synced_at
+        if last_sync.tzinfo is None:
+            last_sync = last_sync.replace(tzinfo=timezone.utc)
+        age_seconds = (now_utc - last_sync).total_seconds()
+        if age_seconds >= 24 * 3600 or "auto_insights" not in company.metadata_json:
+            should_refetch = True
+
+    if company and not should_refetch and company.last_synced_at and company.metadata_json:
         # Check cache age
         last_sync = company.last_synced_at
         if last_sync.tzinfo is None:
@@ -376,6 +405,25 @@ def get_or_fetch_company_analysis(
 
     # 4. Upsert Company record in Neon DB
     if not company:
+        company = db.execute(
+            select(Company).where(
+                or_(
+                    func.upper(Company.symbol) == symbol_clean,
+                    func.upper(Company.ticker) == symbol_clean
+                )
+            )
+        ).scalar_one_or_none()
+
+    meta_payload = {
+        "trends": parsed.trends,
+        "scenarios": parsed.scenarios,
+        "auto_insights": parsed.auto_insights,
+        "quote": parsed.raw_metadata,
+        "fx_converted_from": parsed.raw_metadata.get("fx_converted_from"),
+        "fx_rate_applied": parsed.raw_metadata.get("fx_rate_applied")
+    }
+
+    if not company:
         company = Company(
             symbol=symbol_clean,
             ticker=symbol_clean,
@@ -386,12 +434,7 @@ def get_or_fetch_company_analysis(
             industry=parsed.raw_metadata.get("industry"),
             data_source="yfinance",
             last_synced_at=now_utc,
-            metadata_json={
-                "trends": parsed.trends,
-                "scenarios": parsed.scenarios,
-                "auto_insights": parsed.auto_insights,
-                "quote": parsed.raw_metadata
-            }
+            metadata_json=meta_payload
         )
         db.add(company)
         db.commit()
@@ -399,18 +442,14 @@ def get_or_fetch_company_analysis(
     else:
         company.company_name = parsed.company_name
         company.symbol = symbol_clean
+        company.ticker = symbol_clean
         company.exchange = parsed.raw_metadata.get("exchange")
         company.currency = parsed.raw_metadata.get("currency", "USD")
         company.sector = parsed.raw_metadata.get("sector")
         company.industry = parsed.raw_metadata.get("industry")
         company.data_source = "yfinance"
         company.last_synced_at = now_utc
-        company.metadata_json = {
-            "trends": parsed.trends,
-            "scenarios": parsed.scenarios,
-            "auto_insights": parsed.auto_insights,
-            "quote": parsed.raw_metadata
-        }
+        company.metadata_json = meta_payload
         db.commit()
 
     # 5. Persist Financial Periods
@@ -556,6 +595,43 @@ def _resolve_company_and_periods(symbol: str, db: Session) -> tuple[Company, Lis
             status_code=status.HTTP_404_NOT_FOUND,
             detail=f"Company with symbol '{symbol}' not found."
         )
+
+    # Check for stale unconverted INR cache (e.g. INFY.NS or market_cap / revenue > 100)
+    quote_meta = (company.metadata_json or {}).get("quote", {})
+    mcap = quote_meta.get("market_cap") or quote_meta.get("marketCap") or (company.metadata_json or {}).get("market_cap")
+    fx_conv = quote_meta.get("fx_converted_from") or (company.metadata_json or {}).get("fx_converted_from")
+    curr = (company.currency or quote_meta.get("currency") or quote_meta.get("trading_currency") or "").upper()
+    fin_curr = (quote_meta.get("financial_currency") or quote_meta.get("financialCurrency") or "").upper()
+
+    needs_re_sync = False
+    if curr == "INR" and not fx_conv:
+        if symbol_clean == "INFY.NS":
+            needs_re_sync = True
+        elif mcap and float(mcap) > 0:
+            for p in (company.periods or []):
+                mj = p.metrics_json or {}
+                rev = mj.get("revenue")
+                if rev and float(rev) > 0 and (float(mcap) / float(rev)) > 100:
+                    needs_re_sync = True
+                    break
+    elif fin_curr and curr and fin_curr != curr and not fx_conv:
+        needs_re_sync = True
+
+    if needs_re_sync:
+        try:
+            logger.info(f"_resolve_company_and_periods: Auto-invalidating stale pre-FX cache for {symbol_clean}")
+            get_or_fetch_company_analysis(symbol_clean, refresh=True, db=db)
+            db.expire_all()
+            company = db.execute(
+                select(Company).where(
+                    or_(
+                        func.upper(Company.symbol) == symbol_clean,
+                        func.upper(Company.ticker) == symbol_clean
+                    )
+                )
+            ).scalars().first()
+        except Exception as ref_err:
+            logger.warning(f"Failed to auto-refresh pre-FX company in _resolve_company_and_periods: {ref_err}")
 
     periods = (
         db.query(FinancialPeriod)

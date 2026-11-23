@@ -367,6 +367,10 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
 
     trading_currency = currency.upper()
     financial_currency = (info.get("financialCurrency") or trading_currency).upper()
+    logger.info(
+        f"Fetched currency metadata for {clean_symbol}: "
+        f"trading_currency={trading_currency}, financial_currency={financial_currency}"
+    )
 
     current_price = info.get("currentPrice") or info.get("regularMarketPrice") or info.get("previousClose")
     if not current_price and fast_info:
@@ -788,14 +792,48 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
             logger.debug(f"SEC EDGAR backfill error for {clean_symbol}: {sec_merge_err}")
 
     # 3d. Universal Currency Mismatch Fix: Convert all statement monetary fields & EPS
-    # if financial_currency != trading_currency (e.g. INFY.NS where statements are in USD and trading in INR)
+    # if financial_currency != trading_currency (e.g. INFY.NS where statements are in USD and trading in INR),
+    # OR safety guard: trading_currency == "INR" and market_cap > 0 and latest_revenue > 0 and (market_cap / latest_revenue) > 100
+    # (impossible P/S ratio proving statements are in USD while Market Cap is in INR)
+    latest_rev = None
+    annual_candidates = [
+        p for p in periods
+        if getattr(p, "statement_type", "") != "quarterly"
+        and not (getattr(p, "fiscal_period", "") or "").startswith("Q")
+        and getattr(p, "revenue", None) is not None
+        and not pd.isna(getattr(p, "revenue", None))
+    ]
+    if annual_candidates:
+        annual_candidates.sort(key=lambda p: getattr(p, "fiscal_year", 0) or 0)
+        latest_rev = getattr(annual_candidates[-1], "revenue", None)
+    elif periods:
+        for p in reversed(periods):
+            r = getattr(p, "revenue", None)
+            if r is not None and not pd.isna(r) and float(r) > 0:
+                latest_rev = float(r)
+                break
+
+    ps_ratio_check = False
+    if trading_currency == "INR" and market_cap and float(market_cap) > 0 and latest_rev and float(latest_rev) > 0:
+        ratio = float(market_cap) / float(latest_rev)
+        if ratio > 100:
+            ps_ratio_check = True
+            logger.warning(
+                f"P/S safety guard triggered for {clean_symbol}: market_cap={market_cap}, latest_revenue={latest_rev}, "
+                f"ratio={ratio:.1f} > 100. Statements are in USD while trading in INR!"
+            )
+
+    needs_fx = (financial_currency != trading_currency) or ps_ratio_check
     fx_rate_applied = 1.0
-    if financial_currency != trading_currency:
-        fx_rate = get_fx_rate(financial_currency, trading_currency)
+    from_curr = financial_currency
+    if needs_fx:
+        if financial_currency == trading_currency and ps_ratio_check:
+            from_curr = "USD"
+        fx_rate = get_fx_rate(from_curr, trading_currency)
         fx_rate_applied = fx_rate
         logger.info(
             f"Universal currency conversion for {clean_symbol}: "
-            f"financial_currency={financial_currency} -> trading_currency={trading_currency}, "
+            f"financial_currency={from_curr} -> trading_currency={trading_currency}, "
             f"fx_rate={fx_rate}"
         )
         for p in periods:
@@ -811,8 +849,8 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
         "exchange": raw_exchange,
         "currency": trading_currency,
         "trading_currency": trading_currency,
-        "financial_currency": financial_currency,
-        "fx_converted_from": financial_currency if financial_currency != trading_currency else None,
+        "financial_currency": from_curr if needs_fx else financial_currency,
+        "fx_converted_from": from_curr if needs_fx else None,
         "fx_rate_applied": fx_rate_applied,
         "shares_outstanding": shares_outstanding,
         "sector": sector,

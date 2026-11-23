@@ -10,6 +10,10 @@ Validates:
 - Zero hardcoded secrets / institutional error masking
 """
 
+import sys
+import os
+sys.path.insert(0, os.path.abspath("backend"))
+
 import pytest
 from httpx import AsyncClient, ASGITransport
 from app.main import app

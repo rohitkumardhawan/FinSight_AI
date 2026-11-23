@@ -251,6 +251,20 @@ def calculate_dcf(
     latest_metrics = (sorted(annual_periods, key=lambda p: p.fiscal_year or 0)[-1].metrics_json or {}) if annual_periods else {}
     current_price_auto, shares_auto = extract_shares_and_price(company, latest_metrics)
 
+    # Safety guard: if company is INR, but market_cap / latest_revenue > 100, ensure FCF & net debt are scaled
+    quote_meta = (company.metadata_json or {}).get("quote", {})
+    market_cap = float(quote_meta.get("market_cap") or 0.0)
+    latest_rev = float(latest_metrics.get("revenue") or 0.0)
+    fx_conv = quote_meta.get("fx_converted_from") or (company.metadata_json or {}).get("fx_converted_from")
+    if is_inr and market_cap > 0 and latest_rev > 0 and (market_cap / latest_rev) > 100 and not fx_conv:
+        emergency_fx = 84.5
+        logger.warning(
+            f"DCF safety guard: applying emergency FX rate {emergency_fx} for {company.symbol} "
+            f"(P/S ratio {market_cap/latest_rev:.1f} > 100)"
+        )
+        fcf_base_auto = fcf_base_auto * emergency_fx
+        net_debt_auto = net_debt_auto * emergency_fx
+
     # 2. Merge overrides from request
     growth_rate = normalize_rate(request.growth_rate) if (request and request.growth_rate is not None) else historical_cagr
     wacc = normalize_rate(request.wacc) if (request and request.wacc is not None) else default_wacc

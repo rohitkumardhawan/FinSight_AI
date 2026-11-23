@@ -11,6 +11,10 @@ Verifies:
 4. SEC EDGAR 10-K Backfill: retrieves 10-K facts for US stocks (e.g. AAPL) to backfill 2017–2026.
 """
 
+import sys
+import os
+sys.path.insert(0, os.path.abspath("backend"))
+
 import pytest
 import asyncio
 from unittest.mock import patch, MagicMock
@@ -168,3 +172,30 @@ def test_sec_edgar_annual_backfill_us_stock():
         assert rec.fiscal_year not in existing_years
         assert 2017 <= rec.fiscal_year <= 2023
         assert rec.revenue is not None and rec.revenue > 1e10
+
+
+def test_infy_dcf_base_fcf_and_intrinsic_thresholds():
+    """
+    User Acceptance Regression Test:
+    Verify INFY.NS live DCF produces:
+    - Base FCF > ₹20,000 Cr (i.e. > 2e11)
+    - Intrinsic Value > ₹800
+    """
+    from app.db.session import SessionLocal
+    from app.api.endpoints.companies import calculate_company_dcf, get_or_fetch_company_analysis
+
+    db = SessionLocal()
+    try:
+        # Cache check / analysis fetch
+        res = get_or_fetch_company_analysis("INFY.NS", refresh=False, db=db)
+        assert res is not None
+        quote = res.get("quote", {})
+        assert quote.get("fx_converted_from") == "USD" or quote.get("fx_rate_applied", 1.0) > 80.0
+
+        dcf = calculate_company_dcf("INFY.NS", req=None, db=db)
+        assert dcf.currency == "INR"
+        assert dcf.fcf_base > 20_000 * 1e7, f"Base FCF must be > ₹20,000 Cr, got ₹{dcf.fcf_base / 1e7:,.2f} Cr"
+        assert dcf.intrinsic_value > 800.0, f"Intrinsic Value must be > ₹800, got ₹{dcf.intrinsic_value}"
+    finally:
+        db.close()
+
