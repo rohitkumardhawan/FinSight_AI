@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   FileSpreadsheet, 
   Upload, 
@@ -15,7 +15,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { CsvImportModal } from './CsvImportModal';
-import { PeriodFilterBar, EmptyPeriodSelectionFallback, ALL_YEARS } from './PeriodFilterBar';
+import { PeriodFilterBar, EmptyPeriodSelectionFallback, ALL_YEARS, extractYear, isAnnualPeriod } from './PeriodFilterBar';
 import { API_BASE } from '@/lib/api';
 import { exportCompanyExcelModel } from '@/lib/exportExcel';
 import { 
@@ -60,12 +60,6 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
   const [isCsvModalOpen, setIsCsvModalOpen] = useState<boolean>(false);
   const [dataSourceNotice, setDataSourceNotice] = useState<string>('Connecting to Neon DB...');
 
-  // Helper to test if a record is an annual period
-  const isAnnualPeriod = (s: any) =>
-    !s.fiscal_period ||
-    s.fiscal_period.toUpperCase() === 'FY' ||
-    s.fiscal_period.toUpperCase().startsWith('FY');
-
   // Fetch live company analysis dataset from FastAPI
   const loadData = async (forceRefresh: boolean = false) => {
     setLoading(true);
@@ -88,7 +82,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
 
       const rawPeriods: any[] = data.periods || [];
       // Sort ascending by fiscal year
-      const sorted = [...rawPeriods].sort((a, b) => (a.fiscal_year || 0) - (b.fiscal_year || 0));
+      const sorted = [...rawPeriods].sort((a, b) => (extractYear(a) || 0) - (extractYear(b) || 0));
 
       // Filter out columns where all core metrics are null/empty
       const valid = sorted.filter((p: any) =>
@@ -104,13 +98,13 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
 
       // Auto-populate selected years with available annual years
       const availYears = Array.from(
-        new Set(
+        new Set<number>(
           resolvedPeriods
             .filter(isAnnualPeriod)
-            .map((p: any) => p.fiscal_year)
-            .filter(Boolean)
+            .map(extractYear)
+            .filter((y: any): y is number => y !== null)
         )
-      ).sort((a: any, b: any) => a - b) as number[];
+      ).sort((a: number, b: number) => a - b);
 
       if (availYears.length > 0) {
         setSelectedYears(availYears);
@@ -129,12 +123,19 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     loadData();
   }, [ticker]);
 
-  // Extract available annual years from loaded periods
-  const availableYears = Array.from(
-    new Set(periods.filter(isAnnualPeriod).map((s) => s.fiscal_year).filter(Boolean))
-  ).sort((a: any, b: any) => a - b) as number[];
+  // Extract available annual years from loaded periods via useMemo
+  const availableYears = useMemo(() => {
+    return Array.from(
+      new Set<number>(
+        periods
+          .filter(isAnnualPeriod)
+          .map(extractYear)
+          .filter((y: any): y is number => y !== null)
+      )
+    ).sort((a: number, b: number) => a - b);
+  }, [periods]);
 
-  // Filter periods by FY vs Quarterly and sort chronologically
+  // Filter periods by FY vs Quarterly and sort chronologically via useMemo
   const parseQuarterOrder = (periodStr: string, year?: number) => {
     const match = periodStr.match(/Q(\d)\s*(\d{4})?/i);
     if (match) {
@@ -145,36 +146,45 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     return (year || 0) * 10;
   };
 
-  const filteredPeriods = periods
-    .filter((s) => {
-      const hasCoreData = (
-        (s.revenue !== null && s.revenue !== undefined) ||
-        (s.operating_income !== null && s.operating_income !== undefined) ||
-        (s.net_income !== null && s.net_income !== undefined) ||
-        (s.total_assets !== null && s.total_assets !== undefined) ||
-        (s.operating_cash_flow !== null && s.operating_cash_flow !== undefined)
-      );
-      if (!hasCoreData) return false;
+  const filteredPeriods = useMemo(() => {
+    const safeSelected = (selectedYears || []).map(extractYear).filter((y: any): y is number => y !== null);
 
-      const isAnnual = isAnnualPeriod(s);
-      if (periodFilter === 'annual') {
-        return isAnnual && selectedYears.includes(s.fiscal_year);
-      }
-      if (periodFilter === 'quarterly') {
-        return !isAnnual;
-      }
-      return true;
-    })
-    .sort((a, b) => {
-      if (periodFilter === 'quarterly') {
-        return parseQuarterOrder(a.fiscal_period || '', a.fiscal_year) - parseQuarterOrder(b.fiscal_period || '', b.fiscal_year);
-      }
-      return (a.fiscal_year || 0) - (b.fiscal_year || 0);
-    });
+    return periods
+      .filter((s) => {
+        const hasCoreData = (
+          (s.revenue !== null && s.revenue !== undefined) ||
+          (s.operating_income !== null && s.operating_income !== undefined) ||
+          (s.net_income !== null && s.net_income !== undefined) ||
+          (s.total_assets !== null && s.total_assets !== undefined) ||
+          (s.operating_cash_flow !== null && s.operating_cash_flow !== undefined)
+        );
+        if (!hasCoreData) return false;
 
-  // Calculate counts for Annual vs Quarterly periods
-  const annualCount = periods.filter(isAnnualPeriod).length;
-  const quarterlyCount = periods.filter((s) => !isAnnualPeriod(s)).length;
+        const isAnnual = isAnnualPeriod(s);
+        if (periodFilter === 'annual') {
+          const y = extractYear(s);
+          return isAnnual && y !== null && safeSelected.includes(y);
+        }
+        if (periodFilter === 'quarterly') {
+          return !isAnnual;
+        }
+        return true;
+      })
+      .sort((a, b) => {
+        if (periodFilter === 'quarterly') {
+          const ya = extractYear(a) || 0;
+          const yb = extractYear(b) || 0;
+          return parseQuarterOrder(a.fiscal_period || '', ya) - parseQuarterOrder(b.fiscal_period || '', yb);
+        }
+        const ya = extractYear(a) || 0;
+        const yb = extractYear(b) || 0;
+        return ya - yb;
+      });
+  }, [periods, periodFilter, selectedYears]);
+
+  // Calculate counts for Annual vs Quarterly periods via useMemo
+  const annualCount = useMemo(() => periods.filter(isAnnualPeriod).length, [periods]);
+  const quarterlyCount = useMemo(() => periods.filter((s) => !isAnnualPeriod(s)).length, [periods]);
 
   // Formula-injection sanitization for CSV export (CWE-1236 mitigation)
   const sanitizeCsvCell = (val: any): string => {

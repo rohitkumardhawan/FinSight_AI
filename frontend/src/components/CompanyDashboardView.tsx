@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { useRouter, useSearchParams } from 'next/navigation';
 import ReactMarkdown from 'react-markdown';
 import {
@@ -31,7 +31,7 @@ import {
 } from 'lucide-react';
 import { ChartRevenue } from '@/components/ChartRevenue';
 import { ChartProfitability } from '@/components/ChartProfitability';
-import { PeriodFilterBar, EmptyPeriodSelectionFallback, ALL_YEARS } from '@/components/PeriodFilterBar';
+import { PeriodFilterBar, EmptyPeriodSelectionFallback, ALL_YEARS, extractYear, isAnnualPeriod } from '@/components/PeriodFilterBar';
 import { API_BASE } from '@/lib/api';
 import {
   formatFinancialValue,
@@ -119,6 +119,56 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
   const [asking, setAsking] = useState(false);
   const [chatHistory, setChatHistory] = useState<ChatMessage[]>([]);
 
+  // Top-Level Memoized Periods Architecture (Strict Rules of Hooks: Never called conditionally)
+  const rawDataPeriods: any[] = data?.periods || [];
+
+  const displayPeriods = useMemo(() => {
+    const valid = rawDataPeriods.filter((p: any) =>
+      (p.revenue !== null && p.revenue !== undefined) ||
+      (p.operating_income !== null && p.operating_income !== undefined) ||
+      (p.net_income !== null && p.net_income !== undefined)
+    );
+    return valid.length > 0 ? valid : rawDataPeriods;
+  }, [rawDataPeriods]);
+
+  const annualPeriods = useMemo(() => {
+    return displayPeriods
+      .filter((p: any) => isAnnualPeriod(p))
+      .sort((a: any, b: any) => (extractYear(a) || 0) - (extractYear(b) || 0));
+  }, [displayPeriods]);
+
+  const quarterlyPeriods = useMemo(() => {
+    return displayPeriods
+      .filter((p: any) => !isAnnualPeriod(p))
+      .sort((a: any, b: any) => {
+        const ya = extractYear(a) || 0;
+        const yb = extractYear(b) || 0;
+        if (ya !== yb) return ya - yb;
+        return (a.fiscal_period || '').localeCompare(b.fiscal_period || '');
+      });
+  }, [displayPeriods]);
+
+  const availableAnnualYears = useMemo(() => {
+    return Array.from(
+      new Set<number>(
+        annualPeriods
+          .map(extractYear)
+          .filter((y: any): y is number => y !== null)
+      )
+    ).sort((a: number, b: number) => a - b);
+  }, [annualPeriods]);
+
+  const activeMarginPeriods = useMemo(() => {
+    const safeSelected = (marginSelectedYears || []).map(extractYear).filter((y: any): y is number => y !== null);
+    if (marginPeriodFilter === 'annual') {
+      return annualPeriods.filter((p: any) => {
+        const y = extractYear(p);
+        return y !== null && safeSelected.includes(y);
+      });
+    }
+    return quarterlyPeriods;
+  }, [annualPeriods, quarterlyPeriods, marginPeriodFilter, marginSelectedYears]);
+
   // 1. Fetch analysis data from backend
   const fetchAnalysis = async (forceRefresh: boolean = false) => {
     if (forceRefresh) setRefreshing(true);
@@ -137,13 +187,13 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
 
       const rawPeriods: any[] = json.periods || [];
       const annYears = Array.from(
-        new Set(
+        new Set<number>(
           rawPeriods
-            .filter((p: any) => p.fiscal_year && p.statement_type !== 'quarterly' && (!p.fiscal_period || !p.fiscal_period.startsWith('Q')))
-            .map((p: any) => p.fiscal_year)
-            .filter(Boolean)
+            .filter((p: any) => isAnnualPeriod(p))
+            .map(extractYear)
+            .filter((y: any): y is number => y !== null)
         )
-      ).sort((a: any, b: any) => a - b) as number[];
+      ).sort((a: number, b: number) => a - b);
       if (annYears.length > 0) {
         setMarginSelectedYears(annYears);
       }
@@ -554,34 +604,6 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
   const kpis = auto_insights?.kpis || auto_insights?.kpi_cards || [];
   const curSymbol = getCurrencySymbol(currency);
   const normExchange = normalizeExchange(exchange, symbol);
-
-  // Filter out periods where core financial metrics (revenue, op_income, net_income) are all null/empty
-  const validPeriods = periods.filter((p: any) =>
-    (p.revenue !== null && p.revenue !== undefined) ||
-    (p.operating_income !== null && p.operating_income !== undefined) ||
-    (p.net_income !== null && p.net_income !== undefined)
-  );
-  const displayPeriods = validPeriods.length > 0 ? validPeriods : periods;
-
-  const annualPeriods = displayPeriods.filter(
-    (p: any) => p.fiscal_year && p.statement_type !== 'quarterly' && (!p.fiscal_period || !p.fiscal_period.startsWith('Q'))
-  );
-  const quarterlyPeriods = displayPeriods
-    .filter((p: any) => p.statement_type === 'quarterly' || (p.fiscal_period && p.fiscal_period.startsWith('Q')))
-    .sort((a: any, b: any) => {
-      const ya = a.fiscal_year || 0;
-      const yb = b.fiscal_year || 0;
-      if (ya !== yb) return ya - yb;
-      return (a.fiscal_period || '').localeCompare(b.fiscal_period || '');
-    });
-
-  const availableAnnualYears = Array.from(
-    new Set(annualPeriods.map((p: any) => p.fiscal_year).filter(Boolean))
-  ).sort((a: any, b: any) => a - b) as number[];
-
-  const activeMarginPeriods = marginPeriodFilter === 'annual'
-    ? annualPeriods.filter((p: any) => marginSelectedYears.includes(p.fiscal_year))
-    : quarterlyPeriods;
 
   const latestPeriod = annualPeriods.length > 0 ? annualPeriods[annualPeriods.length - 1] : (displayPeriods[displayPeriods.length - 1] || {});
   const latestOpm = latestPeriod.opm_pct ?? (latestPeriod.operating_income && latestPeriod.revenue ? (latestPeriod.operating_income / latestPeriod.revenue) * 100 : null);

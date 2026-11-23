@@ -1,6 +1,6 @@
 'use client';
 
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useMemo } from 'react';
 import { 
   Percent, 
   RefreshCw, 
@@ -13,7 +13,7 @@ import {
   Calendar
 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
-import { PeriodFilterBar, EmptyPeriodSelectionFallback, ALL_YEARS } from './PeriodFilterBar';
+import { PeriodFilterBar, EmptyPeriodSelectionFallback, ALL_YEARS, extractYear, isAnnualPeriod } from './PeriodFilterBar';
 import { 
   formatPercent, 
   formatMultiple, 
@@ -85,7 +85,7 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
       });
 
       const rawPeriods: any[] = data.periods || [];
-      const sorted = [...rawPeriods].sort((a, b) => (a.fiscal_year || 0) - (b.fiscal_year || 0));
+      const sorted = [...rawPeriods].sort((a, b) => (extractYear(a) || 0) - (extractYear(b) || 0));
       // Filter out empty periods
       const valid = sorted.filter((p: any) =>
         (p.revenue !== null && p.revenue !== undefined) ||
@@ -95,12 +95,16 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
       const resolvedPeriods = valid.length > 0 ? valid : sorted;
       setPeriods(resolvedPeriods);
 
-      const availYears = resolvedPeriods
-        .filter((p: any) => !isQuarterlyPeriod(p) && p.revenue !== null)
-        .map((p: any) => p.fiscal_year)
-        .filter(Boolean) as number[];
+      const availYears = Array.from(
+        new Set<number>(
+          resolvedPeriods
+            .filter((p: any) => isAnnualPeriod(p) && p.revenue !== null)
+            .map(extractYear)
+            .filter((y: any): y is number => y !== null)
+        )
+      ).sort((a: number, b: number) => a - b);
       if (availYears.length > 0) {
-        setSelectedYears(Array.from(new Set(availYears)).sort((a, b) => a - b));
+        setSelectedYears(availYears);
       }
     } catch (err: any) {
       console.warn('Could not load ratios dataset:', err);
@@ -228,21 +232,42 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
     return null;
   };
 
-  const sortedAnnualPeriods = periods
-    .filter(p => !isQuarterlyPeriod(p) && p.revenue !== null)
-    .sort((a, b) => (a.fiscal_year || 0) - (b.fiscal_year || 0));
+  const sortedAnnualPeriods = useMemo(() => {
+    return periods
+      .filter((p) => isAnnualPeriod(p) && p.revenue !== null)
+      .sort((a, b) => (extractYear(a) || 0) - (extractYear(b) || 0));
+  }, [periods]);
 
-  const sortedQuarterlyPeriods = periods
-    .filter(p => isQuarterlyPeriod(p) && p.revenue !== null)
-    .sort((a, b) => parseQuarterOrder(a.fiscal_period || '', a.fiscal_year) - parseQuarterOrder(b.fiscal_period || '', b.fiscal_year));
+  const sortedQuarterlyPeriods = useMemo(() => {
+    return periods
+      .filter((p) => !isAnnualPeriod(p) && p.revenue !== null)
+      .sort((a, b) => {
+        const ya = extractYear(a) || 0;
+        const yb = extractYear(b) || 0;
+        return parseQuarterOrder(a.fiscal_period || '', ya) - parseQuarterOrder(b.fiscal_period || '', yb);
+      });
+  }, [periods]);
 
-  const availableYears = Array.from(
-    new Set(sortedAnnualPeriods.map((p) => p.fiscal_year).filter(Boolean))
-  ).sort((a: any, b: any) => a - b) as number[];
+  const availableYears = useMemo(() => {
+    return Array.from(
+      new Set<number>(
+        sortedAnnualPeriods
+          .map(extractYear)
+          .filter((y: any): y is number => y !== null)
+      )
+    ).sort((a: number, b: number) => a - b);
+  }, [sortedAnnualPeriods]);
 
-  const activePeriods = periodFilter === 'annual'
-    ? sortedAnnualPeriods.filter((p) => selectedYears.includes(p.fiscal_year))
-    : sortedQuarterlyPeriods;
+  const activePeriods = useMemo(() => {
+    const safeSelected = (selectedYears || []).map(extractYear).filter((y: any): y is number => y !== null);
+    if (periodFilter === 'annual') {
+      return sortedAnnualPeriods.filter((p) => {
+        const y = extractYear(p);
+        return y !== null && safeSelected.includes(y);
+      });
+    }
+    return sortedQuarterlyPeriods;
+  }, [sortedAnnualPeriods, sortedQuarterlyPeriods, periodFilter, selectedYears]);
 
   const latestAnnualPeriod = sortedAnnualPeriods.length > 0
     ? sortedAnnualPeriods[sortedAnnualPeriods.length - 1]

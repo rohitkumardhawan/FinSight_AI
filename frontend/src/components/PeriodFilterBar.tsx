@@ -5,6 +5,60 @@ import { Calendar, Layers, Clock, Sparkles, Filter, Check, RotateCcw } from 'luc
 
 export const ALL_YEARS: number[] = [2017, 2018, 2019, 2020, 2021, 2022, 2023, 2024, 2025, 2026];
 
+/**
+ * Safely parses the 4-digit integer year (e.g., 2026) from a period object or value.
+ * Handles p.fiscal_year (2026 or "2026"), p.year, or embedded in p.label / p.period / p.fiscal_period ("FY2026", "Q3 2026").
+ */
+export const extractYear = (p: any): number | null => {
+  if (p === null || p === undefined) return null;
+  if (typeof p === 'number' && p >= 1900 && p <= 2100) return p;
+
+  if (typeof p === 'object') {
+    if (p.fiscal_year !== null && p.fiscal_year !== undefined) {
+      const parsed = parseInt(String(p.fiscal_year), 10);
+      if (!isNaN(parsed) && parsed >= 1900 && parsed <= 2100) return parsed;
+    }
+    if (p.year !== null && p.year !== undefined) {
+      const parsed = parseInt(String(p.year), 10);
+      if (!isNaN(parsed) && parsed >= 1900 && parsed <= 2100) return parsed;
+    }
+  }
+
+  // Look inside string representations (fiscal_period, period, label, date, or primitive string)
+  const candidate = typeof p === 'object'
+    ? String(p.fiscal_period || p.period || p.label || p.date || '')
+    : String(p);
+
+  const match = candidate.match(/\b(20\d{2})\b/);
+  if (match) {
+    const parsed = parseInt(match[1], 10);
+    if (!isNaN(parsed)) return parsed;
+  }
+
+  const fy2DigitMatch = candidate.match(/FY(\d{2})\b/i);
+  if (fy2DigitMatch) {
+    const parsed = 2000 + parseInt(fy2DigitMatch[1], 10);
+    if (!isNaN(parsed)) return parsed;
+  }
+
+  return null;
+};
+
+/**
+ * Checks whether a period record represents an annual FY period.
+ * Checks fiscal_period === "FY" (or starts with "FY") OR statement_type === "annual" OR !label.startsWith("Q").
+ */
+export const isAnnualPeriod = (p: any): boolean => {
+  if (!p) return false;
+  if (p.statement_type === 'quarterly') return false;
+  if (p.statement_type === 'annual' || p.statement_type === 'annual_combined') return true;
+
+  const periodStr = String(p.fiscal_period || p.period || p.label || '').trim().toUpperCase();
+  if (periodStr.startsWith('Q') || /\bQ[1-4]\b/.test(periodStr)) return false;
+  if (periodStr === 'FY' || periodStr.startsWith('FY')) return true;
+  return true;
+};
+
 export interface PeriodFilterBarProps {
   mode: 'annual' | 'quarterly';
   onModeChange: (mode: 'annual' | 'quarterly') => void;
@@ -28,17 +82,19 @@ export const PeriodFilterBar: React.FC<PeriodFilterBarProps> = ({
   className = '',
   showSectionSwitcherOnly = false,
 }) => {
-  // Sort available years ascending
-  const sortedAvailable = [...availableYears].sort((a, b) => a - b);
+  // Normalize selected and available years to strict 4-digit numbers
+  const safeSelected = (selectedYears || []).map(extractYear).filter((y: any): y is number => y !== null);
+  const safeAvailable = (availableYears || []).map(extractYear).filter((y: any): y is number => y !== null);
+  const sortedAvailable = Array.from(new Set<number>(safeAvailable)).sort((a: number, b: number) => a - b);
 
   // Toggle year selection (enforcing at least 1 year remains selected)
   const handleToggleYear = (year: number) => {
-    if (selectedYears.includes(year)) {
-      if (selectedYears.length > 1) {
-        onSelectedYearsChange(selectedYears.filter((y) => y !== year).sort((a, b) => a - b));
+    if (safeSelected.includes(year)) {
+      if (safeSelected.length > 1) {
+        onSelectedYearsChange(safeSelected.filter((y) => y !== year).sort((a, b) => a - b));
       }
     } else {
-      onSelectedYearsChange([...selectedYears, year].sort((a, b) => a - b));
+      onSelectedYearsChange([...safeSelected, year].sort((a, b) => a - b));
     }
   };
 
@@ -72,8 +128,8 @@ export const PeriodFilterBar: React.FC<PeriodFilterBarProps> = ({
   };
 
   // Range Dropdown Handlers
-  const minSelected = selectedYears.length > 0 ? Math.min(...selectedYears) : 2023;
-  const maxSelected = selectedYears.length > 0 ? Math.max(...selectedYears) : 2026;
+  const minSelected = safeSelected.length > 0 ? Math.min(...safeSelected) : 2023;
+  const maxSelected = safeSelected.length > 0 ? Math.max(...safeSelected) : 2026;
 
   const handleFromChange = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const fromY = parseInt(e.target.value, 10);
@@ -230,7 +286,7 @@ export const PeriodFilterBar: React.FC<PeriodFilterBarProps> = ({
               <Calendar className="h-3.5 w-3.5 text-cyan-400" />
               <span className="font-semibold text-slate-300">Custom 2017–2026 Year Selector:</span>
               <span className="text-slate-500">
-                Click any year to toggle • ({selectedYears.length} of 10 selected)
+                Click any year to toggle • ({safeSelected.length} of 10 selected)
               </span>
             </span>
             <span className="text-[10px] text-slate-500 hidden sm:inline">
@@ -240,8 +296,8 @@ export const PeriodFilterBar: React.FC<PeriodFilterBarProps> = ({
 
           <div className="flex items-center gap-1.5 flex-wrap">
             {ALL_YEARS.map((year) => {
-              const isSelected = selectedYears.includes(year);
-              const hasData = availableYears.includes(year);
+              const isSelected = safeSelected.includes(year);
+              const hasData = sortedAvailable.includes(year);
 
               let pillClass = '';
               if (isSelected) {
@@ -321,7 +377,9 @@ export const EmptyPeriodSelectionFallback: React.FC<EmptyPeriodSelectionFallback
   title = 'No Data for Selected Fiscal Years',
   className = '',
 }) => {
-  const sortedAvailable = [...availableYears].sort((a, b) => a - b);
+  const safeSelected = (selectedYears || []).map(extractYear).filter((y: any): y is number => y !== null);
+  const safeAvailable = (availableYears || []).map(extractYear).filter((y: any): y is number => y !== null);
+  const sortedAvailable = Array.from(new Set<number>(safeAvailable)).sort((a: number, b: number) => a - b);
   const availText =
     sortedAvailable.length > 0
       ? sortedAvailable.map((y) => `FY${y}`).join(', ')
@@ -337,7 +395,7 @@ export const EmptyPeriodSelectionFallback: React.FC<EmptyPeriodSelectionFallback
       <div className="space-y-1">
         <h3 className="text-base font-bold text-white">{title}</h3>
         <p className="text-xs text-slate-400 max-w-md mx-auto leading-relaxed">
-          You selected {selectedYears.map((y) => `FY${y}`).join(', ')}. The active company dataset
+          You selected {safeSelected.map((y) => `FY${y}`).join(', ')}. The active company dataset
           currently contains verified disclosures for{' '}
           <span className="text-cyan-400 font-mono font-semibold">{availText}</span>.
         </p>
