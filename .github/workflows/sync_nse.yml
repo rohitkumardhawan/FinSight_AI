@@ -1,14 +1,16 @@
-name: Sync NSE 300 Daily Quotes & Financials
+name: Sync NSE Equities, Daily Quotes & Financials
 
 on:
   schedule:
     # 10:30 UTC = 4:00 PM IST (30 minutes after NSE market close at 3:30 PM IST), Monday through Friday
     - cron: '30 10 * * 1-5'
+    # Weekly Sunday 10:30 UTC = re-sync full EQUITY_L.csv list for newly listed IPOs
+    - cron: '30 10 * * 0'
   workflow_dispatch:
 
 jobs:
-  sync-nse300:
-    name: Sync NSE 300 Equities & Live Financials
+  sync-nse:
+    name: Sync All-India NSE Equities & Live Quotes
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Repository
@@ -25,7 +27,16 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r backend/requirements.txt
 
-      - name: Run Live NSE Sync Script or Admin Endpoint
+      - name: Weekly Re-sync EQUITY_L.csv (IPOs & Listings)
+        if: github.event.schedule == '30 10 * * 0' || github.event_name == 'workflow_dispatch'
+        env:
+          DATABASE_URL: ${{ secrets.DATABASE_URL }}
+          PYTHONPATH: ./backend
+        run: |
+          echo "Syncing all ~2,000+ active NSE listed companies..."
+          python backend/scripts/seed_all_nse.py
+
+      - name: Daily Refresh of Active NSE Quotes
         env:
           DATABASE_URL: ${{ secrets.DATABASE_URL }}
           GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}

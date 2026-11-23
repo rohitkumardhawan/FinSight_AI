@@ -163,6 +163,35 @@ def get_or_fetch_company_analysis(
         if age_seconds < 24 * 3600 and "auto_insights" in company.metadata_json:
             periods_list = [p.metrics_json for p in company.periods if p.metrics_json]
             if periods_list:
+                # Auto-backfill 10Y Screener data for Indian cached equities if missing (<6 annual periods)
+                cached_meta = company.metadata_json or {}
+                annual_in_cache = [p for p in periods_list if p.get("statement_type") != "quarterly"]
+                is_inr_stock = (company.currency or "").upper() == "INR" or symbol_clean.endswith((".NS", ".BO"))
+                if is_inr_stock and len(annual_in_cache) < 6 and not cached_meta.get("historical_10y_synced"):
+                    try:
+                        from app.services.historical_backfill import fetch_screener_10y_periods
+                        existing_years = {p.get("fiscal_year") for p in annual_in_cache if p.get("fiscal_year")}
+                        screener_periods = fetch_screener_10y_periods(symbol_clean)
+                        to_add = [sp for sp in screener_periods if sp.fiscal_year and sp.fiscal_year not in existing_years]
+                        if to_add:
+                            for sp in to_add:
+                                fp = FinancialPeriod(
+                                    company_id=company.id,
+                                    fiscal_year=sp.fiscal_year,
+                                    fiscal_period=sp.fiscal_period,
+                                    statement_type=sp.statement_type,
+                                    metrics_json=sp.model_dump()
+                                )
+                                db.add(fp)
+                                periods_list.append(sp.model_dump())
+                            periods_list.sort(key=lambda x: (1 if x.get("statement_type") == "quarterly" else 0, x.get("fiscal_year") or 0))
+                        cached_meta["historical_10y_synced"] = True
+                        company.metadata_json = dict(cached_meta)
+                        db.commit()
+                        logger.info(f"Auto-backfilled {len(to_add)} historical years into cached {symbol_clean}")
+                    except Exception as b_err:
+                        logger.debug(f"Cached 10Y backfill error for {symbol_clean}: {b_err}")
+
                 # Auto-enrich quarterly periods and cash flow if missing in cached record
                 has_quarterly = any(p.get("statement_type") == "quarterly" for p in periods_list)
                 if not has_quarterly:

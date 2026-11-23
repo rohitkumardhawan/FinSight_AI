@@ -342,6 +342,21 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
     # Fallback to fast_info for critical pricing/exchange data
     fast_info = getattr(ticker, "fast_info", None)
 
+    # Automatic .BO fallback for rare Indian SME/BSE-only equities when .NS returns empty
+    if clean_symbol.endswith(".NS") and not info and (not fast_info or not getattr(fast_info, "last_price", None)):
+        bo_sym = clean_symbol[:-3] + ".BO"
+        try:
+            bo_ticker = yf.Ticker(bo_sym)
+            bo_info = bo_ticker.info or {}
+            bo_fast = getattr(bo_ticker, "fast_info", None)
+            if bo_info or (bo_fast and getattr(bo_fast, "last_price", None)):
+                logger.info(f"Fell back from {clean_symbol} to BSE ticker {bo_sym}")
+                ticker = bo_ticker
+                info = bo_info
+                fast_info = bo_fast
+        except Exception as bo_err:
+            logger.debug(f"BSE fallback check error for {clean_symbol}: {bo_err}")
+
     company_name = (
         info.get("longName")
         or info.get("shortName")
@@ -791,6 +806,27 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
         except Exception as sec_merge_err:
             logger.debug(f"SEC EDGAR backfill error for {clean_symbol}: {sec_merge_err}")
 
+    # 3c-1. Backfill Indian stocks missing annual periods from Screener.in (FY2017–FY2026)
+    historical_10y_synced = False
+    if clean_symbol.endswith(".NS") or clean_symbol.endswith(".BO") or trading_currency == "INR":
+        try:
+            from app.services.historical_backfill import fetch_screener_10y_periods
+            annual_p = [p for p in periods if p.statement_type != "quarterly"]
+            if len(annual_p) < 6:
+                existing_years = {p.fiscal_year for p in annual_p if p.fiscal_year}
+                screener_periods = fetch_screener_10y_periods(clean_symbol)
+                to_add = [sp for sp in screener_periods if sp.fiscal_year and sp.fiscal_year not in existing_years]
+                if to_add:
+                    annual_p = annual_p + to_add
+                    annual_p.sort(key=lambda p: p.fiscal_year or 0)
+                    quarterly_p = [p for p in periods if p.statement_type == "quarterly"]
+                    periods = annual_p + quarterly_p
+                    logger.info(f"Merged {len(to_add)} historical years from Screener.in for {clean_symbol} (total annual: {len(annual_p)})")
+                if len(annual_p) >= 6 or screener_periods:
+                    historical_10y_synced = True
+        except Exception as scr_merge_err:
+            logger.warning(f"Screener 10Y merge error for {clean_symbol}: {scr_merge_err}")
+
     # 3d. Universal Currency Mismatch Fix: Convert all statement monetary fields & EPS
     # if financial_currency != trading_currency (e.g. INFY.NS where statements are in USD and trading in INR),
     # OR safety guard: trading_currency == "INR" and market_cap > 0 and latest_revenue > 0 and (market_cap / latest_revenue) > 100
@@ -837,6 +873,8 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
             f"fx_rate={fx_rate}"
         )
         for p in periods:
+            if getattr(p, "source", "").startswith("Screener.in"):
+                continue
             for field in STATEMENT_MONETARY_FIELDS:
                 val = getattr(p, field, None)
                 if val is not None and not pd.isna(val):
@@ -858,6 +896,7 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
         "current_price": current_price,
         "trailing_pe": trailing_pe,
         "market_cap": market_cap,
+        "historical_10y_synced": historical_10y_synced,
         "price_history": price_history,
         "fetched_at": datetime.utcnow().isoformat()
     }

@@ -297,7 +297,7 @@ export const CompanyDashboardView: React.FC<CompanyDashboardViewProps> = ({
   const toggleWatchlist = () => {
     try {
       const raw = localStorage.getItem('finsight_watchlist');
-      let list: string[] = raw ? JSON.parse(raw) : ['ASIANPAINT.NS', 'RELIANCE.NS', 'TCS.NS'];
+      let list: string[] = raw ? JSON.parse(raw) : ['ASIANPAINT.NS', 'RELIANCE.NS', 'TCS.NS', 'INFY.NS'];
       list = list.map((x: any) => (typeof x === 'string' ? x : x.symbol));
       const targetSym = (data?.symbol || symbolOrId).trim().toUpperCase();
       if (list.some((s) => s.toUpperCase() === targetSym)) {

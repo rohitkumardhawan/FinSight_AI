@@ -18,12 +18,12 @@ from app.models.company import Company
 logger = logging.getLogger(__name__)
 
 FEATURED_NSE_LIST = [
+    "ASIANPAINT.NS",
     "RELIANCE.NS",
     "TCS.NS",
     "HDFCBANK.NS",
     "INFY.NS",
     "ICICIBANK.NS",
-    "ASIANPAINT.NS",
     "ITC.NS",
     "SBIN.NS",
     "BHARTIARTL.NS",
@@ -90,7 +90,7 @@ def _get_featured_companies(db: Session, limit: int = 10) -> List[Dict[str, Any]
         return []
 
 
-def _query_db_companies(db: Session, query: str, limit: int = 10) -> List[Dict[str, Any]]:
+def _query_db_companies(db: Session, query: str, limit: int = 12) -> List[Dict[str, Any]]:
     """Synchronous database query for cached/NSE companies in Neon Postgres."""
     try:
         q_lower = query.strip().lower()
@@ -101,11 +101,15 @@ def _query_db_companies(db: Session, query: str, limit: int = 10) -> List[Dict[s
                 or_(
                     func.lower(Company.symbol).like(search_pattern),
                     func.lower(Company.ticker).like(search_pattern),
-                    func.lower(Company.company_name).like(search_pattern)
+                    func.lower(Company.company_name).like(search_pattern),
+                    func.lower(Company.isin).like(search_pattern),
                 )
             )
             .order_by(
+                (func.lower(Company.symbol) == q_lower).desc(),
+                (func.lower(Company.ticker) == q_lower).desc(),
                 func.lower(Company.symbol).startswith(q_lower).desc(),
+                func.lower(Company.company_name).startswith(q_lower).desc(),
                 Company.company_name.asc()
             )
             .limit(limit)
@@ -115,7 +119,7 @@ def _query_db_companies(db: Session, query: str, limit: int = 10) -> List[Dict[s
         for comp in local_companies:
             sym = (comp.symbol or comp.ticker or f"ID-{comp.id}").strip()
             exch = _normalize_exchange(sym, comp.exchange or "NSE")
-            currency = comp.currency or ("INR" if (sym.endswith(".NS") or sym.endswith(".BO") or exch in ("NSE", "BSE")) else "USD")
+            currency = comp.currency or ("INR" if (sym.endswith(".NS") or sym.endswith(".BO") or exch in ("NSE", "BSE")) else "INR")
             meta = comp.metadata_json or {}
             quote = meta.get("quote", {})
 
@@ -162,8 +166,20 @@ async def _fetch_yahoo_quotes(query: str, limit: int) -> List[Dict[str, Any]]:
                     name = q.get("longname") or q.get("shortname") or symbol
                     raw_exch = q.get("exchDisp") or q.get("exchange") or "GLOBAL"
                     exch = _normalize_exchange(symbol, raw_exch)
-                    sector = q.get("sector") or q.get("sectorDisp") or "General"
-                    currency = "INR" if (symbol.endswith(".NS") or symbol.endswith(".BO") or exch in ("NSE", "BSE")) else "USD"
+                    
+                    # Strictly restrict to Indian equities (NSE / BSE / INR)
+                    is_indian = (
+                        symbol.endswith(".NS")
+                        or symbol.endswith(".BO")
+                        or exch in ("NSE", "BSE")
+                        or "NSI" in (raw_exch or "").upper()
+                        or "BOM" in (raw_exch or "").upper()
+                    )
+                    if not is_indian:
+                        continue
+
+                    sector = q.get("sector") or q.get("sectorDisp") or "Indian Equities"
+                    currency = "INR"
 
                     quotes_out.append({
                         "symbol": symbol,

@@ -69,11 +69,11 @@ export const Sidebar: React.FC<SidebarProps> = ({
           }
         }
         // Seed default institutional universe if clean state
-        const defaults = ['ASIANPAINT.NS', 'RELIANCE.NS', 'TCS.NS'];
+        const defaults = ['ASIANPAINT.NS', 'RELIANCE.NS', 'TCS.NS', 'INFY.NS'];
         setWatchlist(defaults);
         localStorage.setItem('finsight_watchlist', JSON.stringify(defaults));
       } catch {
-        setWatchlist(['ASIANPAINT.NS', 'RELIANCE.NS', 'TCS.NS']);
+        setWatchlist(['ASIANPAINT.NS', 'RELIANCE.NS', 'TCS.NS', 'INFY.NS']);
       }
     };
 

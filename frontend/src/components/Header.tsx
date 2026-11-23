@@ -30,8 +30,8 @@ export interface MarketIndexQuote {
 
 const DEFAULT_INDICES: MarketIndexQuote[] = [
   { symbol: '^NSEI', name: 'NIFTY 50', price: 24180.80, change: 132.50, change_pct: 0.55, currency: 'INR' },
-  { symbol: '^GSPC', name: 'S&P 500', price: 5983.25, change: 25.10, change_pct: 0.42, currency: 'USD' },
-  { symbol: '^IXIC', name: 'NASDAQ', price: 19081.40, change: 128.90, change_pct: 0.68, currency: 'USD' },
+  { symbol: '^BSESN', name: 'BSE SENSEX', price: 79800.00, change: 245.30, change_pct: 0.31, currency: 'INR' },
+  { symbol: '^NSEBANK', name: 'NIFTY BANK', price: 51200.00, change: 180.20, change_pct: 0.35, currency: 'INR' },
 ];
 
 interface HeaderProps {
@@ -300,7 +300,7 @@ export const Header: React.FC<HeaderProps> = ({
                     searchInputRef.current?.blur();
                   }
                 }}
-                placeholder="Search Indian (NSE/BSE) or Global equities (e.g. ASIANPAINT, AAPL)..."
+                placeholder="Search any of 2,000+ Indian NSE companies (e.g., RELIANCE, TCS, ZOMATO, M&M)..."
                 className="w-full bg-[#11141B] border border-white/[0.08] hover:border-white/[0.14] focus:border-sky-500/60 focus:ring-1 focus:ring-sky-500/30 rounded-lg pl-9 pr-14 py-2 text-xs text-white placeholder-slate-500 transition-all font-sans"
               />
 
@@ -320,9 +320,9 @@ export const Header: React.FC<HeaderProps> = ({
             {searchOpen && (
               <div className="absolute left-0 mt-2 w-full sm:w-[460px] bg-[#11141B] border border-white/[0.1] rounded-xl shadow-2xl z-50 overflow-hidden py-1 max-h-84 overflow-y-auto backdrop-blur-xl">
                 <div className="px-3.5 py-2 text-[10px] uppercase tracking-wider text-slate-400 font-semibold border-b border-white/[0.06] flex justify-between items-center bg-[#0C0E14]">
-                  <span>{searchTerm.trim().length >= 2 ? 'Global & Indian Equities' : 'Recent & Cached Universe'}</span>
+                  <span>{searchTerm.trim().length >= 2 ? 'All-India NSE Equities' : 'Featured NSE Leaders'}</span>
                   <span className="text-sky-400 font-mono text-[9px] flex items-center gap-1">
-                    <Globe className="h-2.5 w-2.5" /> LIVE SEARCH
+                    <Globe className="h-2.5 w-2.5" /> NSE LIVE
                   </span>
                 </div>
 
@@ -406,10 +406,10 @@ export const Header: React.FC<HeaderProps> = ({
                     {isSearching ? (
                       <div className="flex items-center justify-center gap-2 text-sky-400">
                         <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>Searching global financial markets...</span>
+                        <span>Searching 2,000+ Indian NSE equities...</span>
                       </div>
                     ) : (
-                      <span>No matching companies found. Try typing a ticker (e.g. ASIANPAINT.NS, TCS.NS, AAPL).</span>
+                      <span>No matching companies found. Try typing an NSE ticker (e.g. RELIANCE.NS, TCS.NS, INFY.NS, M&amp;M.NS).</span>
                     )}
                   </div>
                 )}

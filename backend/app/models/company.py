@@ -1,6 +1,6 @@
 from datetime import datetime
 from typing import List, Optional
-from sqlalchemy import String, DateTime, func, JSON
+from sqlalchemy import String, DateTime, Boolean, func, JSON
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.db.base import Base
 
@@ -18,6 +18,9 @@ class Company(Base):
     currency: Mapped[str] = mapped_column(String(10), default="USD", nullable=False)
     data_source: Mapped[Optional[str]] = mapped_column(String(50), default="yfinance", nullable=True)
     last_synced_at: Mapped[Optional[datetime]] = mapped_column(DateTime(timezone=True), nullable=True)
+    isin: Mapped[Optional[str]] = mapped_column(String(50), index=True, nullable=True)
+    listing_date: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    is_featured: Mapped[Optional[bool]] = mapped_column(Boolean, default=False, nullable=True)
     metadata_json: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
 
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), server_default=func.now(), nullable=False)
