@@ -16,6 +16,7 @@ import {
 } from 'lucide-react';
 import { CsvImportModal } from './CsvImportModal';
 import { API_BASE } from '@/lib/api';
+import { exportCompanyExcelModel } from '@/lib/exportExcel';
 import { 
   formatFinancialValue, 
   formatAccountingValue,
@@ -53,6 +54,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     exchange: ticker?.endsWith('.NS') ? 'NSE' : 'GLOBAL',
   });
   const [loading, setLoading] = useState<boolean>(false);
+  const [downloadingExcel, setDownloadingExcel] = useState<boolean>(false);
   const [isCsvModalOpen, setIsCsvModalOpen] = useState<boolean>(false);
   const [dataSourceNotice, setDataSourceNotice] = useState<string>('Connecting to Neon DB...');
 
@@ -577,6 +579,21 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     URL.revokeObjectURL(url);
   };
 
+  // 1-Click Institutional Excel Financial Model Export
+  const handleDownloadExcel = async () => {
+    if (downloadingExcel) return;
+    setDownloadingExcel(true);
+    try {
+      const sym = companyInfo.symbol || ticker || 'ASIANPAINT.NS';
+      await exportCompanyExcelModel(sym);
+    } catch (err: any) {
+      console.error('Error exporting Excel financial model:', err);
+      alert(`Could not export Excel model: ${err.message}`);
+    } finally {
+      setDownloadingExcel(false);
+    }
+  };
+
   // Calculate YoY growth between periods
   const calculateGrowth = (current?: number | null, prev?: number | null) => {
     if (current == null || prev == null || prev === 0) return null;
@@ -777,6 +794,27 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
           >
             <Download className="h-3.5 w-3.5" />
             <span>Export CSV</span>
+          </button>
+
+          {/* 1-Click Institutional Excel Financial Model Export */}
+          <button
+            type="button"
+            onClick={handleDownloadExcel}
+            disabled={downloadingExcel || filteredPeriods.length === 0}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-emerald-500/10 hover:bg-emerald-500/20 border border-emerald-500/40 hover:border-emerald-400 text-xs font-semibold text-emerald-400 hover:text-emerald-300 transition-colors shadow-sm disabled:opacity-50"
+            title="Download publication-grade multi-tab Excel financial model (.xlsx) with live formulas"
+          >
+            {downloadingExcel ? (
+              <>
+                <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                <span>Exporting Excel...</span>
+              </>
+            ) : (
+              <>
+                <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Export Excel Model (.xlsx)</span>
+              </>
+            )}
           </button>
 
           <a

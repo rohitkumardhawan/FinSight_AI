@@ -130,7 +130,8 @@ def format_mult(val: Any, suffix: str = "x") -> str:
 
 def calculate_risk_intelligence(
     company: Company,
-    periods: List[FinancialPeriod]
+    periods: List[FinancialPeriod],
+    skip_ai: bool = False
 ) -> RiskIntelligenceResponse:
     """
     Computes deterministic risk pillars and grounded watchpoints for a company.
@@ -452,7 +453,8 @@ def calculate_risk_intelligence(
         p3=pillar_valuation,
         p4=pillar_quality,
         overall_score=overall_score,
-        overall_tier=overall_tier
+        overall_tier=overall_tier,
+        skip_ai=skip_ai
     )
 
     from datetime import datetime, timezone
@@ -480,14 +482,15 @@ def _generate_watchpoints(
     p3: ValuationStretchPillar,
     p4: EarningsQualityPillar,
     overall_score: float,
-    overall_tier: str
+    overall_tier: str,
+    skip_ai: bool = False
 ) -> List[RiskWatchpoint]:
     """
     Calls Gemini 3.8 Flash to synthesize 3 institutional watchpoints.
-    Falls back gracefully to deterministic rule-based watchpoints if Gemini is unavailable.
+    Falls back gracefully to deterministic rule-based watchpoints if Gemini is unavailable or skip_ai=True.
     """
     symbol = company.symbol or company.ticker or ""
-    client = _get_genai_client()
+    client = _get_genai_client() if not skip_ai else None
 
     if client:
         try:

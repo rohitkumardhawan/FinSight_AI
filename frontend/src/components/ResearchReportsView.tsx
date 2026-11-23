@@ -16,9 +16,11 @@ import {
   Sparkles,
   ExternalLink,
   ChevronRight,
-  Printer
+  Printer,
+  FileSpreadsheet
 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
+import { exportCompanyExcelModel } from '@/lib/exportExcel';
 import { 
   formatFinancialValue, 
   formatPerShare, 
@@ -96,6 +98,7 @@ export const ResearchReportsView: React.FC<ResearchReportsViewProps> = ({
   const [report, setReport] = useState<ReportPreviewData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [downloading, setDownloading] = useState<boolean>(false);
+  const [downloadingExcel, setDownloadingExcel] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const sym = ticker || 'ASIANPAINT.NS';
@@ -146,6 +149,20 @@ export const ResearchReportsView: React.FC<ResearchReportsViewProps> = ({
       alert(`Could not download PDF report: ${err.message}`);
     } finally {
       setDownloading(false);
+    }
+  };
+
+  // 3. Download Institutional Excel (.xlsx) Model
+  const handleDownloadExcel = async () => {
+    if (downloadingExcel) return;
+    setDownloadingExcel(true);
+    try {
+      await exportCompanyExcelModel(report?.symbol || sym);
+    } catch (err: any) {
+      console.error('Error downloading Excel model:', err);
+      alert(`Could not download Excel financial model: ${err.message}`);
+    } finally {
+      setDownloadingExcel(false);
     }
   };
 
@@ -234,6 +251,24 @@ export const ResearchReportsView: React.FC<ResearchReportsViewProps> = ({
             title="Refresh Preview"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          </button>
+          <button
+            onClick={handleDownloadExcel}
+            disabled={downloadingExcel}
+            className="flex items-center gap-2 px-4 py-2.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 text-sm font-semibold transition-all disabled:opacity-50 shadow-sm"
+            title="Download multi-tab institutional Excel model (.xlsx) with live formulas"
+          >
+            {downloadingExcel ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin text-emerald-400" />
+                Exporting Excel...
+              </>
+            ) : (
+              <>
+                <FileSpreadsheet className="h-4 w-4 text-emerald-400" />
+                Export Excel Model (.xlsx)
+              </>
+            )}
           </button>
           <button
             onClick={handleDownloadPdf}

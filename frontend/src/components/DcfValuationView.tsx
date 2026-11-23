@@ -12,9 +12,11 @@ import {
   Info,
   CheckCircle2,
   RefreshCw,
-  Building2
+  Building2,
+  FileSpreadsheet
 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
+import { exportCompanyExcelModel } from '@/lib/exportExcel';
 import { 
   formatFinancialValue, 
   formatPerShare, 
@@ -73,6 +75,7 @@ export const DcfValuationView: React.FC<DcfValuationViewProps> = ({
   const [data, setData] = useState<DCFData | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
   const [calculating, setCalculating] = useState<boolean>(false);
+  const [downloadingExcel, setDownloadingExcel] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   // Sliders state (in percentage terms: e.g. 10.0 for 10%, 11.5 for 11.5%)
@@ -186,6 +189,25 @@ export const DcfValuationView: React.FC<DcfValuationViewProps> = ({
     loadDcfData({});
   };
 
+  // Download Institutional Excel Model with Current Sliders
+  const handleDownloadExcel = async () => {
+    if (downloadingExcel) return;
+    setDownloadingExcel(true);
+    try {
+      await exportCompanyExcelModel(sym, {
+        fcf_growth: fcfGrowthPct,
+        wacc: waccPct,
+        terminal_growth: terminalGrowthPct,
+        projection_years: projectionYears,
+      });
+    } catch (err: any) {
+      console.error('Error exporting DCF Excel model:', err);
+      alert(`Could not export Excel model: ${err.message}`);
+    } finally {
+      setDownloadingExcel(false);
+    }
+  };
+
   if (loading && !data) {
     return (
       <div className="bg-navy-900 border border-navy-800 rounded-xl p-12 text-center text-slate-400">
@@ -259,6 +281,24 @@ export const DcfValuationView: React.FC<DcfValuationViewProps> = ({
         </div>
 
         <div className="flex items-center gap-2.5 self-start sm:self-auto">
+          <button
+            onClick={handleDownloadExcel}
+            disabled={downloadingExcel || calculating}
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 text-xs font-semibold shadow-sm transition-all disabled:opacity-50"
+            title="Download multi-tab institutional Excel model (.xlsx) with current DCF slider assumptions"
+          >
+            {downloadingExcel ? (
+              <>
+                <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                <span>Exporting Excel...</span>
+              </>
+            ) : (
+              <>
+                <FileSpreadsheet className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Export Excel Model (.xlsx)</span>
+              </>
+            )}
+          </button>
           <button
             onClick={handleReset}
             disabled={calculating}

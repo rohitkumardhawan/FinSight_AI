@@ -4,6 +4,7 @@ from datetime import datetime, timezone
 import logging
 import asyncio
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.orm import Session
 from sqlalchemy import select, func, or_
 from app.core.limiter import limiter
@@ -23,6 +24,7 @@ from app.services.rag_service import index_company_chunks, ask_company_question
 from app.services.dcf_engine import calculate_dcf, DCFRequest, DCFResponse
 from app.services.risk_engine import calculate_risk_intelligence, RiskIntelligenceResponse
 from app.services.report_generator import generate_pdf_report, get_report_preview_data
+from app.services.excel_exporter import generate_financial_model_xlsx
 from app.services.peer_engine import get_sector_peers
 from app.services.news_engine import get_company_news
 
@@ -633,6 +635,46 @@ def download_company_research_report_pdf(
     return Response(
         content=pdf_bytes,
         media_type="application/pdf",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-cache"
+        }
+    )
+
+
+@router.get("/{symbol}/export/xlsx")
+@limiter.limit("10/minute")
+def export_company_financial_model_xlsx(
+    request: Request,
+    symbol: str,
+    fcf_growth: Optional[float] = Query(None, description="Projected annual FCF growth rate override (e.g. 0.10 or 10.0)"),
+    wacc: Optional[float] = Query(None, description="WACC override (e.g. 0.115 or 11.5)"),
+    terminal_growth: Optional[float] = Query(None, description="Terminal growth rate override (e.g. 0.04 or 4.0)"),
+    projection_years: Optional[int] = Query(5, ge=5, le=10, description="Projection horizon in years (5 to 10)"),
+    db: Session = Depends(get_db)
+):
+    """
+    Exports a 4-sheet publication-grade institutional financial model (.xlsx)
+    with live Excel formulas for 3-statement financials, DCF projection schedule,
+    equity bridge, and 5x5 sensitivity matrix.
+    Rate-limited to 10/min. Streams application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.
+    """
+    company, periods = _resolve_company_and_periods(symbol, db)
+    excel_buf = generate_financial_model_xlsx(
+        company=company,
+        periods=periods,
+        db=db,
+        fcf_growth=fcf_growth,
+        wacc=wacc,
+        terminal_growth=terminal_growth,
+        projection_years=projection_years or 5
+    )
+    clean_sym = company.symbol or symbol
+    filename = f"FinSight_{clean_sym}_Financial_Model.xlsx"
+
+    return StreamingResponse(
+        excel_buf,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Cache-Control": "no-cache"
