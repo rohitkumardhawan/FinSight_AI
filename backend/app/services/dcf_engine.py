@@ -18,6 +18,7 @@ from sqlalchemy.orm import Session
 
 from app.models.company import Company
 from app.models.dataset import FinancialPeriod
+from app.financial.metrics import calculate_net_debt
 
 logger = logging.getLogger(__name__)
 
@@ -140,7 +141,7 @@ def extract_fcf_and_debt(
     # 1. Total Debt & Cash
     total_debt = float(latest_metrics.get("total_debt") or 0.0)
     cash_equiv = float(latest_metrics.get("cash_and_equivalents") or 0.0)
-    net_debt = total_debt - cash_equiv
+    net_debt = calculate_net_debt(total_debt, cash_equiv)
 
     # 2. Free Cash Flow resolution
     fcf = latest_metrics.get("free_cash_flow")

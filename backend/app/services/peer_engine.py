@@ -16,6 +16,7 @@ from sqlalchemy.orm import Session
 from sqlalchemy import func, or_
 from app.models.company import Company
 from app.models.dataset import FinancialPeriod
+from app.financial.metrics import calculate_net_debt, calculate_ev_to_ebitda
 
 logger = logging.getLogger(__name__)
 
@@ -47,6 +48,10 @@ def _fetch_yfinance_peer_info(symbol: str) -> Dict[str, Any]:
         ebitda_m = info.get("ebitdaMargins")
         pb = info.get("priceToBook")
 
+        tot_debt_yf = info.get("totalDebt")
+        tot_cash_yf = info.get("totalCash")
+        yf_ebitda = info.get("ebitda")
+
         if (price is None or market_cap is None) and hasattr(t, "fast_info"):
             try:
                 fi = t.fast_info
@@ -56,6 +61,12 @@ def _fetch_yfinance_peer_info(symbol: str) -> Dict[str, Any]:
                     market_cap = getattr(fi, "market_cap", None)
             except Exception:
                 pass
+
+        if market_cap and yf_ebitda and yf_ebitda > 0:
+            nd_yf = calculate_net_debt(tot_debt_yf, tot_cash_yf)
+            calc_ev_eb = calculate_ev_to_ebitda(market_cap, nd_yf, yf_ebitda)
+            if calc_ev_eb is not None:
+                ev_to_ebitda = calc_ev_eb
 
         return {
             "price": round(float(price), 2) if price is not None else None,
@@ -154,11 +165,13 @@ def _extract_metrics_for_company(company: Company, periods: List[FinancialPeriod
         elif lp.get("ebitda_margin_pct") is not None:
             ebitda_margin_pct = lp.get("ebitda_margin_pct")
 
-        if ev_to_ebitda is None and lp.get("ev_to_ebitda") is not None:
+        # Compute unified Net Debt and EV/EBITDA via shared helper
+        nd_calc = calculate_net_debt(lp.get("total_debt"), lp.get("cash_and_equivalents"))
+        computed_ev_to_ebitda = calculate_ev_to_ebitda(market_cap, nd_calc, ebitda_val)
+        if computed_ev_to_ebitda is not None:
+            ev_to_ebitda = computed_ev_to_ebitda
+        elif lp.get("ev_to_ebitda") is not None:
             ev_to_ebitda = lp.get("ev_to_ebitda")
-        elif ev_to_ebitda is None and market_cap and ebitda_val and ebitda_val > 0:
-            ev_calc = float(market_cap) + (lp.get("total_debt") or 0.0) - (lp.get("cash_and_equivalents") or 0.0)
-            ev_to_ebitda = round(ev_calc / ebitda_val, 2)
 
         if price_to_book is None and lp.get("price_to_book") is not None:
             price_to_book = lp.get("price_to_book")

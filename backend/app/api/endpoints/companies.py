@@ -16,7 +16,7 @@ from app.schemas.company import CompanyCreate, CompanyUpdate, CompanyResponse
 from app.schemas.statement import FinancialStatementCreate, FinancialStatementResponse
 from app.schemas.ratio import FinancialRatioCreate, FinancialRatioResponse
 from app.schemas.dataset import AskQuestionRequest, AskQuestionResponse
-from app.financial.metrics import calculate_all_ratios
+from app.financial.metrics import calculate_all_ratios, calculate_net_debt, calculate_ev_to_ebitda
 from app.services.ticker_search import search_tickers
 from app.services.auto_fetcher import fetch_company_data
 from app.services.rag_service import index_company_chunks, ask_company_question
@@ -167,6 +167,13 @@ def get_or_fetch_company_analysis(
 
                 # Ensure EBITDA, Balance Sheet memo items, and Cash Flow metrics are populated for all cached periods
                 for p in periods_list:
+                    # Income Statement: reconcile Other Income / (Expense) dynamically on read
+                    pbt = p.get("profit_before_tax")
+                    ebit = p.get("operating_income") if p.get("operating_income") is not None else p.get("ebit")
+                    interest = p.get("interest_expense")
+                    if p.get("other_income") is None and pbt is not None and ebit is not None:
+                        p["other_income"] = round(pbt - (ebit - abs(interest or 0.0)), 2)
+
                     # EBITDA & EBITDA Margin %
                     rev = p.get("revenue")
                     if p.get("ebitda") is None:
@@ -187,11 +194,12 @@ def get_or_fetch_company_analysis(
 
                     if p.get("non_current_assets") is None and tot_assets is not None and curr_assets is not None:
                         p["non_current_assets"] = round(tot_assets - curr_assets, 2)
-                    if p.get("net_debt") is None and tot_debt is not None:
-                        p["net_debt"] = round(tot_debt - (cash or 0.0), 2)
+                    # Unified Net Debt: dynamically calculate on-the-fly across all cached records
+                    if tot_debt is not None or cash is not None:
+                        p["net_debt"] = calculate_net_debt(tot_debt, cash)
                     if p.get("net_working_capital") is None and curr_assets is not None and curr_liab is not None:
                         p["net_working_capital"] = round(curr_assets - curr_liab, 2)
-                    if p.get("invested_capital") is None and tot_equity is not None:
+                    if tot_equity is not None:
                         p["invested_capital"] = round((p.get("net_debt") or 0.0) + tot_equity, 2)
 
                     # Cash Flow line items
@@ -207,6 +215,25 @@ def get_or_fetch_company_analysis(
                         p["financing_cash_flow"] = round(-(cfo * 0.35), 2)
                     if p.get("net_change_in_cash") is None and cfo is not None:
                         p["net_change_in_cash"] = round((cfo or 0.0) + (p.get("investing_cash_flow") or 0.0) + (p.get("financing_cash_flow") or 0.0), 2)
+
+                # Dynamically synchronize EV/EBITDA on read for latest annual period
+                raw_quote_dict = company.metadata_json.get("quote", {})
+                quote_mcap = raw_quote_dict.get("market_cap") or raw_quote_dict.get("marketCap")
+                if quote_mcap:
+                    annual_candidates = sorted(
+                        [
+                            p for p in periods_list
+                            if p.get("statement_type") != "quarterly"
+                            and not (p.get("fiscal_period") or "").upper().startswith("Q")
+                            and p.get("revenue") is not None
+                        ],
+                        key=lambda x: x.get("fiscal_year") or 0
+                    )
+                    if annual_candidates:
+                        latest_annual = annual_candidates[-1]
+                        if latest_annual.get("ebitda") and latest_annual["ebitda"] > 0:
+                            nd = latest_annual.get("net_debt") if latest_annual.get("net_debt") is not None else calculate_net_debt(latest_annual.get("total_debt"), latest_annual.get("cash_and_equivalents"))
+                            latest_annual["ev_to_ebitda"] = calculate_ev_to_ebitda(quote_mcap, nd, latest_annual["ebitda"])
                 quote = company.metadata_json.get("quote", {})
                 quote_updated = quote.get("quote_updated_at")
                 need_quote_refresh = False

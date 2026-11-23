@@ -37,17 +37,35 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
 
   const maxVal = Math.max(...activeData.map((d) => Math.max(d.revenue || 0, (showEbitda && d.ebitda) ? d.ebitda : 0)), 1) * 1.15;
   const height = 240;
-  const width = 560;
-  const paddingX = 48;
+  const width = 580;
+  const paddingLeft = 86;
+  const paddingRight = 24;
   const paddingY = 30;
 
   const getX = (index: number) => {
-    if (activeData.length <= 1) return width / 2;
-    return paddingX + (index * (width - 2 * paddingX)) / (activeData.length - 1);
+    if (activeData.length <= 1) return (paddingLeft + (width - paddingRight)) / 2;
+    return paddingLeft + (index * (width - paddingLeft - paddingRight)) / (activeData.length - 1);
   };
 
   const getY = (val: number) => {
     return height - paddingY - (Math.max(val, 0) / maxVal) * (height - 2 * paddingY);
+  };
+
+  // Compact Y-axis tick formatter (e.g. ₹35.5k Cr or $3.5B) ensuring zero clipping
+  const formatYAxisTick = (val: number, cur: string) => {
+    if (val === 0) return (cur === 'INR' || cur === '₹') ? '₹0 Cr' : '$0';
+    const isINR = cur === 'INR' || cur === '₹';
+    if (isINR) {
+      const inCr = val / 1e7;
+      if (inCr >= 1000) {
+        return `₹${(inCr / 1000).toFixed(1)}k Cr`;
+      }
+      return `₹${inCr.toFixed(0)} Cr`;
+    }
+    const absVal = Math.abs(val);
+    if (absVal >= 1e9) return `$${(val / 1e9).toFixed(1)}B`;
+    if (absVal >= 1e6) return `$${(val / 1e6).toFixed(1)}M`;
+    return `$${val.toFixed(0)}`;
   };
 
   // SVG paths
@@ -78,7 +96,7 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
         </div>
 
         {/* Timeframe Pill Toggles & Legend */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center justify-between sm:justify-end gap-2 sm:gap-3">
           {/* Timeframe Pills */}
           <div className="flex items-center bg-[#090B0F] p-0.5 rounded-lg border border-white/[0.08]">
             {(['6M', '1Y', '3Y', '5Y'] as const).map((tf) => (
@@ -96,9 +114,9 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
             ))}
           </div>
 
-          {/* Legend with EBITDA toggle */}
-          <div className="hidden sm:flex items-center gap-2.5 text-xs pl-2 border-l border-white/[0.08]">
-            <div className="flex items-center gap-1.5 text-slate-300 text-[11px]">
+          {/* Legend with EBITDA toggle (flex-wrap with compact gap) */}
+          <div className="flex flex-wrap items-center gap-2 text-xs pl-2 border-l border-white/[0.08]">
+            <div className="flex items-center gap-1.5 text-slate-300 text-[11px] whitespace-nowrap">
               <span className="h-2 w-2 rounded-full bg-sky-400 shadow-sm shadow-sky-400/50" />
               <span>Revenue</span>
             </div>
@@ -106,7 +124,7 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
               <button
                 type="button"
                 onClick={() => setShowEbitda(!showEbitda)}
-                className={`flex items-center gap-1.5 text-[11px] px-1.5 py-0.5 rounded transition-all ${
+                className={`flex items-center gap-1.5 text-[11px] px-1.5 py-0.5 rounded transition-all whitespace-nowrap ${
                   showEbitda ? 'text-amber-300 bg-amber-500/10 border border-amber-500/30 font-semibold' : 'text-slate-500 hover:text-slate-300'
                 }`}
                 title="Toggle EBITDA series"
@@ -115,7 +133,7 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
                 <span>EBITDA</span>
               </button>
             )}
-            <div className="flex items-center gap-1.5 text-slate-300 text-[11px]">
+            <div className="flex items-center gap-1.5 text-slate-300 text-[11px] whitespace-nowrap">
               <span className="h-2 w-2 rounded-full bg-emerald-400" />
               <span>Net Income</span>
             </div>
@@ -139,23 +157,23 @@ export const ChartRevenue: React.FC<ChartRevenueProps> = ({ data, ticker, curren
             return (
               <g key={i}>
                 <line
-                  x1={paddingX}
+                  x1={paddingLeft}
                   y1={y}
-                  x2={width - paddingX}
+                  x2={width - paddingRight}
                   y2={y}
                   stroke="rgba(255, 255, 255, 0.06)"
                   strokeDasharray="3 3"
                   strokeWidth="0.8"
                 />
                 <text
-                  x={paddingX - 8}
+                  x={paddingLeft - 8}
                   y={y + 3}
                   fill="#64748B"
                   fontSize="9"
                   fontFamily="monospace"
                   textAnchor="end"
                 >
-                  {formatFinancialValue(ratio * maxVal, currency)}
+                  {formatYAxisTick(ratio * maxVal, currency)}
                 </text>
               </g>
             );

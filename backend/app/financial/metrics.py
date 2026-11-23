@@ -80,6 +80,30 @@ def calculate_debt_to_equity(total_debt: Optional[float], total_equity: Optional
         return None
     return round(total_debt / total_equity, 4)
 
+def calculate_net_debt(total_debt: Optional[float], cash_and_equivalents: Optional[float]) -> float:
+    """
+    Net Debt = (Total Debt or 0.0) - (Cash and Equivalents or 0.0)
+    Unified institutional standard across Balance Sheet, DCF Equity Bridge, Ratios, and Peer Comparison.
+    """
+    debt = float(total_debt or 0.0)
+    cash = float(cash_and_equivalents or 0.0)
+    return round(debt - cash, 2)
+
+def calculate_ev_to_ebitda(
+    market_cap: Optional[float],
+    net_debt: Optional[float],
+    latest_annual_ebitda: Optional[float]
+) -> Optional[float]:
+    """
+    EV/EBITDA = (Market Cap + Net Debt) / Latest Annual EBITDA
+    Where Enterprise Value (EV) = Market Cap + Net Debt.
+    Returns None if ebitda is missing or non-positive, or market_cap is missing.
+    """
+    if market_cap is None or latest_annual_ebitda is None or float(latest_annual_ebitda) <= 0:
+        return None
+    ev = float(market_cap) + float(net_debt or 0.0)
+    return round(ev / float(latest_annual_ebitda), 2)
+
 def calculate_all_ratios(statement_data: Dict[str, Any]) -> Dict[str, Optional[float]]:
     """
     Calculates all institutional ratios deterministically in pure Python.

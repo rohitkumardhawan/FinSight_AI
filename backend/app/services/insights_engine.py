@@ -9,6 +9,7 @@ without relying on non-deterministic black-box LLMs.
 from typing import List, Dict, Any, Optional
 import math
 from app.schemas.dataset import ParsedCompanyDataset, FinancialPeriodRecord
+from app.financial.metrics import calculate_net_debt, calculate_ev_to_ebitda
 
 
 def calculate_cagr(start_val: Optional[float], end_val: Optional[float], years: int) -> Any:
@@ -127,6 +128,10 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
         da_val = p.depreciation_amortization or 0.0
         ebitda_val = (ebit_val + da_val) if ebit_val is not None else None
 
+        # Reconcile Other Income / (Expense) dynamically
+        if p.other_income is None and p.profit_before_tax is not None and ebit_val is not None:
+            p.other_income = round(p.profit_before_tax - (ebit_val - abs(p.interest_expense or 0.0)), 2)
+
         capital_employed = None
         if p.total_assets and p.current_liabilities is not None:
             capital_employed = p.total_assets - p.current_liabilities
@@ -142,22 +147,21 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
         quote_dict = raw_meta.get("quote") if isinstance(raw_meta.get("quote"), dict) else {}
         live_mcap = raw_meta.get("market_cap") or quote_dict.get("market_cap")
         period_mcap = None
-        if p.share_price and p.eps and p.eps > 0 and p.net_income and p.net_income > 0:
+        if idx == len(annual_periods) - 1 and live_mcap:
+            period_mcap = float(live_mcap)
+        elif p.share_price and p.eps and p.eps > 0 and p.net_income and p.net_income > 0:
             shares = p.net_income / p.eps
             period_mcap = p.share_price * shares
-        elif idx == len(annual_periods) - 1 and live_mcap:
-            period_mcap = float(live_mcap)
         elif p.share_price and p.pe_ratio and p.net_income and p.net_income > 0:
             period_mcap = p.pe_ratio * p.net_income
         elif live_mcap:
             period_mcap = float(live_mcap)
 
-        ev_val = None
-        if period_mcap is not None:
-            ev_val = period_mcap + (p.total_debt or 0.0) - (p.cash_and_equivalents or 0.0)
+        net_debt_val = calculate_net_debt(p.total_debt, p.cash_and_equivalents)
+        ev_val = (period_mcap + net_debt_val) if period_mcap is not None else None
 
         # Valuation Multiples
-        ev_to_ebitda = round(ev_val / ebitda_val, 2) if (ev_val is not None and ebitda_val and ebitda_val > 0) else None
+        ev_to_ebitda = calculate_ev_to_ebitda(period_mcap, net_debt_val, ebitda_val)
         ev_to_revenue = round(ev_val / p.revenue, 2) if (ev_val is not None and p.revenue and p.revenue > 0) else None
         price_to_book = round(period_mcap / p.total_equity, 2) if (period_mcap is not None and p.total_equity and p.total_equity > 0) else None
         price_to_sales = round(period_mcap / p.revenue, 2) if (period_mcap is not None and p.revenue and p.revenue > 0) else None
@@ -196,6 +200,7 @@ def generate_auto_insights(dataset: ParsedCompanyDataset) -> Dict[str, Any]:
             "total_assets": p.total_assets,
             "total_equity": p.total_equity,
             "total_debt": p.total_debt,
+            "net_debt": net_debt_val,
             "current_ratio": current_ratio,
             "debt_to_equity": debt_to_equity,
             "debt_to_ebitda": debt_to_ebitda,

@@ -253,7 +253,15 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     },
     {
       label: '(+) Other Income / (Expense)',
-      getValue: (s) => s.other_income,
+      getValue: (s) => {
+        if (s.other_income != null) return s.other_income;
+        if (s.profit_before_tax != null && (s.operating_income != null || s.ebit != null)) {
+          const ebit = s.operating_income ?? s.ebit;
+          const interest = Math.abs(s.interest_expense || 0);
+          return Math.round((s.profit_before_tax - (ebit - interest)) * 100) / 100;
+        }
+        return null;
+      },
       indent: true,
     },
     {
@@ -421,7 +429,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     // DCF Memo Rows
     {
       label: 'Net Debt (Total Debt - Cash)',
-      getValue: (s) => s.net_debt ?? (s.total_debt != null ? s.total_debt - (s.cash_and_equivalents || 0) : null),
+      getValue: (s) => (s.total_debt != null ? s.total_debt - (s.cash_and_equivalents || 0) : s.net_debt),
       getBase: (s) => s.total_assets,
       indent: true,
       isSubrow: true,
@@ -436,9 +444,9 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     {
       label: 'Invested Capital (Net Debt + Equity)',
       getValue: (s) => {
-        if (s.invested_capital != null) return s.invested_capital;
-        const nd = s.net_debt ?? (s.total_debt != null ? s.total_debt - (s.cash_and_equivalents || 0) : 0);
-        return s.total_equity != null ? nd + s.total_equity : null;
+        const nd = s.total_debt != null ? s.total_debt - (s.cash_and_equivalents || 0) : (s.net_debt || 0);
+        if (s.total_equity != null && nd != null) return nd + s.total_equity;
+        return s.invested_capital;
       },
       getBase: (s) => s.total_assets,
       indent: true,

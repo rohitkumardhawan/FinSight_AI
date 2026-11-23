@@ -16,6 +16,7 @@ import yfinance as yf
 from app.core.config import settings
 from app.schemas.dataset import FinancialPeriodRecord, ParsedCompanyDataset
 from app.services.insights_engine import generate_auto_insights
+from app.financial.metrics import calculate_net_debt
 
 logger = logging.getLogger(__name__)
 
@@ -231,6 +232,9 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
             depr = _get_metric_val(cashflow, ["Depreciation And Amortization", "Depreciation Amortization Depletion", "Depreciation", "Depreciation & Amortization"], dt)
         interest = _get_metric_val(income_stmt, ["Interest Expense", "Interest Expense Non Operating"], dt)
         pbt = _get_metric_val(income_stmt, ["Pretax Income"], dt)
+        if other_inc is None and pbt is not None and (op_inc is not None or ebit is not None):
+            ebit_base = op_inc if op_inc is not None else ebit
+            other_inc = round(pbt - (ebit_base - abs(interest or 0.0)), 2)
         tax_exp = _get_metric_val(income_stmt, ["Tax Provision", "Tax Effect Of Unusual Items"], dt)
         net_inc = _get_metric_val(income_stmt, ["Net Income Common Stockholders", "Net Income"], dt)
         eps = _get_metric_val(income_stmt, ["Diluted EPS", "Basic EPS"], dt)
@@ -277,9 +281,7 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
             other_liab = round(max(0.0, total_liab - current_liab), 2)
 
         total_equity = _get_metric_val(balance_sheet, ["Stockholders Equity", "Common Stock Equity"], dt)
-        net_debt = _get_metric_val(balance_sheet, ["Net Debt"], dt)
-        if net_debt is None and total_debt is not None:
-            net_debt = round(total_debt - (cash or 0.0), 2)
+        net_debt = calculate_net_debt(total_debt, cash)
         nwc = _get_metric_val(balance_sheet, ["Working Capital"], dt)
         if nwc is None and current_assets is not None and current_liab is not None:
             nwc = round(current_assets - current_liab, 2)
@@ -396,6 +398,9 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
                 depr_q = _get_metric_val(q_cashflow, ["Depreciation And Amortization", "Depreciation Amortization Depletion", "Depreciation", "Depreciation & Amortization"], q_dt)
             interest_q = _get_metric_val(q_income_stmt, ["Interest Expense", "Interest Expense Non Operating"], q_dt)
             pbt_q = _get_metric_val(q_income_stmt, ["Pretax Income"], q_dt)
+            if other_inc_q is None and pbt_q is not None and (op_inc_q is not None or ebit_q is not None):
+                ebit_base_q = op_inc_q if op_inc_q is not None else ebit_q
+                other_inc_q = round(pbt_q - (ebit_base_q - abs(interest_q or 0.0)), 2)
             tax_exp_q = _get_metric_val(q_income_stmt, ["Tax Provision", "Tax Effect Of Unusual Items"], q_dt)
             net_inc_q = _get_metric_val(q_income_stmt, ["Net Income Common Stockholders", "Net Income"], q_dt)
             eps_q = _get_metric_val(q_income_stmt, ["Diluted EPS", "Basic EPS"], q_dt)
@@ -442,9 +447,7 @@ def fetch_company_data(symbol: str) -> ParsedCompanyDataset:
                 other_liab_q = round(max(0.0, total_liab_q - current_liab_q), 2)
 
             total_equity_q = _get_metric_val(q_balance_sheet, ["Stockholders Equity", "Common Stock Equity"], q_dt)
-            net_debt_q = _get_metric_val(q_balance_sheet, ["Net Debt"], q_dt)
-            if net_debt_q is None and total_debt_q is not None:
-                net_debt_q = round(total_debt_q - (cash_q or 0.0), 2)
+            net_debt_q = calculate_net_debt(total_debt_q, cash_q)
             nwc_q = _get_metric_val(q_balance_sheet, ["Working Capital"], q_dt)
             if nwc_q is None and current_assets_q is not None and current_liab_q is not None:
                 nwc_q = round(current_assets_q - current_liab_q, 2)

@@ -9,7 +9,8 @@ import {
   Zap, 
   Database,
   CheckCircle2,
-  HelpCircle
+  HelpCircle,
+  Calendar
 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
 import { 
@@ -202,7 +203,44 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
     return null;
   };
 
+  const [periodFilter, setPeriodFilter] = useState<'annual' | 'quarterly'>('annual');
+
+  // Filter and sort Annual (FY) vs Quarterly periods
+  const isQuarterlyPeriod = (p: any) =>
+    p.statement_type === 'quarterly' ||
+    (p.fiscal_period && p.fiscal_period.toUpperCase().startsWith('Q'));
+
+  const parseQuarterOrder = (periodStr: string, year?: number) => {
+    const match = periodStr.match(/Q(\d)\s*(\d{4})?/i);
+    if (!match) return (year || 0) * 10;
+    const qNum = parseInt(match[1], 10);
+    const qYear = match[2] ? parseInt(match[2], 10) : (year || 0);
+    return qYear * 10 + qNum;
+  };
+
+  const sortedAnnualPeriods = periods
+    .filter(p => !isQuarterlyPeriod(p) && p.revenue !== null)
+    .sort((a, b) => (a.fiscal_year || 0) - (b.fiscal_year || 0));
+
+  const sortedQuarterlyPeriods = periods
+    .filter(p => isQuarterlyPeriod(p) && p.revenue !== null)
+    .sort((a, b) => parseQuarterOrder(a.fiscal_period || '', a.fiscal_year) - parseQuarterOrder(b.fiscal_period || '', b.fiscal_year));
+
+  const activePeriods = periodFilter === 'annual'
+    ? (sortedAnnualPeriods.length > 0 ? sortedAnnualPeriods : periods)
+    : (sortedQuarterlyPeriods.length > 0 ? sortedQuarterlyPeriods : periods);
+
+  const latestAnnualPeriod = sortedAnnualPeriods.length > 0
+    ? sortedAnnualPeriods[sortedAnnualPeriods.length - 1]
+    : (periods.length > 0 ? periods[periods.length - 1] : null);
+
+  const annualPeriodBadge = latestAnnualPeriod?.fiscal_period || (latestAnnualPeriod?.fiscal_year ? `FY${latestAnnualPeriod.fiscal_year}` : 'FY');
+
   const getPeriodMarketCap = (p: any) => {
+    const isLatestAnnual = sortedAnnualPeriods.length > 0 && p === sortedAnnualPeriods[sortedAnnualPeriods.length - 1];
+    if (isLatestAnnual && companyInfo.market_cap) {
+      return companyInfo.market_cap;
+    }
     if (p.share_price && p.eps && p.eps > 0 && p.net_income && p.net_income > 0) {
       return p.share_price * (p.net_income / p.eps);
     }
@@ -262,17 +300,7 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
     return null;
   };
 
-  // Strict filter for Annual (FY) periods so summary KPI cards never read unannualized quarters
-  const annualPeriods = periods.filter(p =>
-    p.fiscal_year &&
-    p.statement_type !== 'quarterly' &&
-    (!p.fiscal_period || !p.fiscal_period.startsWith('Q'))
-  );
-  const latestAnnualPeriod = annualPeriods.length > 0
-    ? annualPeriods[annualPeriods.length - 1]
-    : (periods.length > 0 ? periods[periods.length - 1] : null);
 
-  const annualPeriodBadge = latestAnnualPeriod?.fiscal_period || (latestAnnualPeriod?.fiscal_year ? `FY${latestAnnualPeriod.fiscal_year}` : 'FY');
 
   return (
     <div className="space-y-6">
@@ -431,16 +459,70 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
             </div>
           )}
 
+      {/* Historical Ratios Multi-Year Comparison Table Header & Horizon Controls */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pt-2">
+        <div>
+          <h2 className="text-base font-bold text-white">Historical Ratio Evolution</h2>
+          <p className="text-xs text-slate-400">Deterministic cross-statement financial analytics</p>
+        </div>
+
+        {/* Horizon Toggle Pill: Annual | Quarterly */}
+        <div className="flex items-center gap-1.5 self-start sm:self-auto">
+          <span className="text-slate-400 text-[11px] font-medium flex items-center gap-1">
+            <Calendar className="h-3.5 w-3.5 text-sky-400" />
+            <span>Horizon:</span>
+          </span>
+          <div className="bg-[#090B0F] p-1 rounded-lg border border-white/[0.08] flex gap-1 shadow-inner">
+            <button
+              type="button"
+              onClick={() => setPeriodFilter('annual')}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                periodFilter === 'annual'
+                  ? 'bg-sky-500 text-white shadow-sm font-bold'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span>Annual</span>
+              {sortedAnnualPeriods.length > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  periodFilter === 'annual' ? 'bg-navy-950/20 text-navy-950 font-bold' : 'bg-navy-800 text-slate-400'
+                }`}>
+                  {sortedAnnualPeriods.length}Y
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => setPeriodFilter('quarterly')}
+              className={`px-3 py-1 rounded-lg text-xs font-semibold transition-all flex items-center gap-1.5 ${
+                periodFilter === 'quarterly'
+                  ? 'bg-sky-500 text-white shadow-sm font-bold'
+                  : 'text-slate-400 hover:text-white'
+              }`}
+            >
+              <span>Quarterly</span>
+              {sortedQuarterlyPeriods.length > 0 && (
+                <span className={`text-[10px] px-1.5 py-0.2 rounded-full font-mono ${
+                  periodFilter === 'quarterly' ? 'bg-navy-950/20 text-navy-950 font-bold' : 'bg-navy-800 text-slate-400'
+                }`}>
+                  {sortedQuarterlyPeriods.length}Q
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+      </div>
+
       {/* Historical Ratios Multi-Year Comparison Table */}
       <div className="bg-navy-900 border border-navy-800 rounded-2xl overflow-hidden shadow-xl">
         <div className="overflow-x-auto">
           <table className="w-full text-left">
             <thead className="bg-navy-950 text-slate-400 text-[11px] uppercase tracking-wider border-b border-navy-800">
               <tr>
-                <th className="py-3 px-4 font-semibold text-slate-300 min-w-[240px]">
+                <th className="py-3 px-4 font-semibold text-slate-300 min-w-[240px] sticky left-0 bg-[#0C0E14] z-20 border-r border-white/[0.06]">
                   Financial Metric / Ratio
                 </th>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <th key={idx} className="py-3 px-4 text-right font-mono font-bold text-white min-w-[110px]">
                     <span className="text-gold-accent text-xs">
                       {p.fiscal_period || `FY${p.fiscal_year}`}
@@ -455,73 +537,73 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
               {/* PROFITABILITY RATIOS */}
               <tr className="bg-navy-950/80">
                 <td
-                  colSpan={periods.length + 1}
+                  colSpan={activePeriods.length + 1}
                   className="py-2 px-4 text-[11px] font-bold tracking-wider uppercase text-gold-400 border-t border-b border-gold-500/20"
                 >
                   1. Profitability & Returns Ratios
                 </td>
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   Gross Profit Margin
                   <div className="text-[10px] text-slate-500 font-mono">(Revenue - COGS) / Revenue</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
                     {formatPercent(getGrossMargin(p))}
                   </td>
                 ))}
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   Operating Margin (EBIT Margin / OPM)
                   <div className="text-[10px] text-slate-500 font-mono">Operating Income / Revenue</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
                     {formatPercent(getOperatingMargin(p))}
                   </td>
                 ))}
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   Net Profit Margin
                   <div className="text-[10px] text-slate-500 font-mono">Net Income / Revenue</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
                     {formatPercent(getNetMargin(p))}
                   </td>
                 ))}
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   Return on Equity (ROE)
                   <div className="text-[10px] text-slate-500 font-mono">Net Income / Total Stockholders' Equity</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
                     {formatPercent(getROE(p))}
                   </td>
                 ))}
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   Return on Assets (ROA)
                   <div className="text-[10px] text-slate-500 font-mono">Net Income / Total Assets</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
                     {formatPercent(getROA(p))}
                   </td>
                 ))}
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   Return on Capital Employed (ROCE / ROIC)
                   <div className="text-[10px] text-slate-500 font-mono">EBIT / (Total Assets - Current Liabilities)</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-gold-300 font-semibold">
                     {formatPercent(getROIC(p))}
                   </td>
@@ -531,29 +613,29 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
               {/* LIQUIDITY RATIOS */}
               <tr className="bg-navy-950/80">
                 <td
-                  colSpan={periods.length + 1}
+                  colSpan={activePeriods.length + 1}
                   className="py-2 px-4 text-[11px] font-bold tracking-wider uppercase text-cyan-400 border-t border-b border-cyan-500/20"
                 >
                   2. Liquidity & Short-Term Solvency
                 </td>
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   Current Ratio
                   <div className="text-[10px] text-slate-500 font-mono">Current Assets / Current Liabilities</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
                     {formatMultiple(getCurrentRatio(p))}
                   </td>
                 ))}
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   Quick Ratio (Acid-Test)
                   <div className="text-[10px] text-slate-500 font-mono">(Current Assets - Inventory) / Current Liabilities</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
                     {formatMultiple(getQuickRatio(p))}
                   </td>
@@ -563,29 +645,29 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
               {/* LEVERAGE & SOLVENCY RATIOS */}
               <tr className="bg-navy-950/80">
                 <td
-                  colSpan={periods.length + 1}
+                  colSpan={activePeriods.length + 1}
                   className="py-2 px-4 text-[11px] font-bold tracking-wider uppercase text-amber-400 border-t border-b border-amber-500/20"
                 >
                   3. Leverage & Long-Term Solvency
                 </td>
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   Debt-to-Equity Ratio
                   <div className="text-[10px] text-slate-500 font-mono">Total Debt / Total Stockholders' Equity</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
                     {formatMultiple(getDebtToEquity(p))}
                   </td>
                 ))}
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   Debt / EBITDA
                   <div className="text-[10px] text-slate-500 font-mono">Total Debt / EBITDA</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
                     {formatMultiple(getDebtToEbitda(p))}
                   </td>
@@ -595,29 +677,29 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
               {/* EFFICIENCY RATIOS */}
               <tr className="bg-navy-950/80">
                 <td
-                  colSpan={periods.length + 1}
+                  colSpan={activePeriods.length + 1}
                   className="py-2 px-4 text-[11px] font-bold tracking-wider uppercase text-emerald-400 border-t border-b border-emerald-500/20"
                 >
                   4. Efficiency & Asset Utilization Ratios
                 </td>
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   Asset Turnover
                   <div className="text-[10px] text-slate-500 font-mono">Revenue / Total Assets</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
                     {formatMultiple(getAssetTurnover(p))}
                   </td>
                 ))}
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   Inventory Turnover
                   <div className="text-[10px] text-slate-500 font-mono">Cost of Goods Sold / Inventory</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
                     {formatMultiple(getInventoryTurnover(p))}
                   </td>
@@ -627,73 +709,73 @@ export const FinancialRatiosView: React.FC<FinancialRatiosViewProps> = ({
               {/* VALUATION MULTIPLES */}
               <tr className="bg-navy-950/80">
                 <td
-                  colSpan={periods.length + 1}
+                  colSpan={activePeriods.length + 1}
                   className="py-2 px-4 text-[11px] font-bold tracking-wider uppercase text-purple-400 border-t border-b border-purple-500/20"
                 >
                   5. Institutional Valuation Multiples
                 </td>
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   Price to Earnings (Trailing P/E)
                   <div className="text-[10px] text-slate-500 font-mono">Share Price / Diluted EPS</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-purple-300 font-semibold">
-                    {formatMultiple(p.pe_ratio || (idx === periods.length - 1 ? companyInfo.trailing_pe : null))}
+                    {formatMultiple(p.pe_ratio || (idx === activePeriods.length - 1 ? companyInfo.trailing_pe : null))}
                   </td>
                 ))}
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   EV / EBITDA
                   <div className="text-[10px] text-slate-500 font-mono">Enterprise Value / (Operating Income + D&A)</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
                     {formatMultiple(getEvToEbitda(p))}
                   </td>
                 ))}
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   EV / Revenue
                   <div className="text-[10px] text-slate-500 font-mono">Enterprise Value / Revenue</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
                     {formatMultiple(getEvToRevenue(p))}
                   </td>
                 ))}
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   Price-to-Book (P/B)
                   <div className="text-[10px] text-slate-500 font-mono">Market Cap / Total Stockholders' Equity</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
                     {formatMultiple(getPriceToBook(p))}
                   </td>
                 ))}
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   Price-to-Sales (P/S)
                   <div className="text-[10px] text-slate-500 font-mono">Market Cap / Revenue</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-slate-200">
                     {formatMultiple(getPriceToSales(p))}
                   </td>
                 ))}
               </tr>
               <tr className="hover:bg-navy-800/30">
-                <td className="py-3 px-4 font-medium text-slate-300">
+                <td className="py-3 px-4 font-medium text-slate-300 sticky left-0 bg-[#11141B] z-10 border-r border-white/[0.06]">
                   FCF Yield %
                   <div className="text-[10px] text-slate-500 font-mono">Free Cash Flow / Market Cap</div>
                 </td>
-                {periods.map((p, idx) => (
+                {activePeriods.map((p, idx) => (
                   <td key={idx} className="py-3 px-4 text-right font-mono text-emerald-400 font-semibold">
                     {formatPercent(getFcfYield(p))}
                   </td>
