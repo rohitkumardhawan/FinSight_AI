@@ -68,6 +68,7 @@ def _get_featured_companies(db: Session, limit: int = 10) -> List[Dict[str, Any]
             quote = meta.get("quote", {})
             current_price = quote.get("current_price")
             change_percent = quote.get("change_percent")
+            market_cap = quote.get("market_cap") or meta.get("market_cap")
 
             ordered.append({
                 "symbol": comp.symbol,
@@ -79,7 +80,8 @@ def _get_featured_companies(db: Session, limit: int = 10) -> List[Dict[str, Any]
                 "is_cached": True,
                 "data_source": "neon_db",
                 "price": current_price,
-                "change_percent": change_percent
+                "change_percent": change_percent,
+                "market_cap": market_cap
             })
             if len(ordered) >= limit:
                 break
@@ -122,6 +124,7 @@ def _query_db_companies(db: Session, query: str, limit: int = 12) -> List[Dict[s
             currency = comp.currency or ("INR" if (sym.endswith(".NS") or sym.endswith(".BO") or exch in ("NSE", "BSE")) else "INR")
             meta = comp.metadata_json or {}
             quote = meta.get("quote", {})
+            market_cap = quote.get("market_cap") or meta.get("market_cap")
 
             mapped.append({
                 "symbol": sym,
@@ -133,7 +136,8 @@ def _query_db_companies(db: Session, query: str, limit: int = 12) -> List[Dict[s
                 "is_cached": True,
                 "data_source": comp.data_source or "neon_db",
                 "price": quote.get("current_price"),
-                "change_percent": quote.get("change_percent")
+                "change_percent": quote.get("change_percent"),
+                "market_cap": market_cap
             })
         return mapped
     except Exception as e:
@@ -189,7 +193,8 @@ async def _fetch_yahoo_quotes(query: str, limit: int) -> List[Dict[str, Any]]:
                         "currency": currency,
                         "quote_type": quote_type or "EQUITY",
                         "is_cached": False,
-                        "data_source": "yfinance"
+                        "data_source": "yfinance",
+                        "market_cap": q.get("marketCap")
                     })
     except Exception as ex:
         logger.warning(f"Yahoo Search HTTP warning: {ex}")

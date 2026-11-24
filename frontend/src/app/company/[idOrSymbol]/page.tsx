@@ -92,7 +92,7 @@ function CompanyDetailContent() {
               initialB={searchParams?.get('b') || (symbol === 'ASIANPAINT.NS' ? 'BERGEPAINT.NS' : (symbol === 'TCS.NS' ? 'INFY.NS' : (symbol === 'INFY.NS' ? 'TCS.NS' : 'BERGEPAINT.NS')))}
               onSelectTicker={handleSelectTicker}
             />
-          ) : activeSection === 'financial-statements' ? (
+          ) : activeSection === 'financial-statements' || activeSection === 'financials' ? (
             <FinancialStatementsView
               ticker={symbol}
               onSelectTicker={handleSelectTicker}

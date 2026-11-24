@@ -20,7 +20,7 @@ import {
   FileSpreadsheet
 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
-import { exportCompanyExcelModel } from '@/lib/exportExcel';
+import { exportCompanyExcelModel, exportCompanyDatasetCsv } from '@/lib/exportExcel';
 import { 
   formatFinancialValue, 
   formatPerShare, 
@@ -99,6 +99,7 @@ export const ResearchReportsView: React.FC<ResearchReportsViewProps> = ({
   const [loading, setLoading] = useState<boolean>(true);
   const [downloading, setDownloading] = useState<boolean>(false);
   const [downloadingExcel, setDownloadingExcel] = useState<boolean>(false);
+  const [downloadingCsv, setDownloadingCsv] = useState<boolean>(false);
   const [error, setError] = useState<string | null>(null);
 
   const sym = ticker || 'ASIANPAINT.NS';
@@ -176,6 +177,20 @@ export const ResearchReportsView: React.FC<ResearchReportsViewProps> = ({
     }
   };
 
+  // 4. Download Raw Dataset (CSV)
+  const handleDownloadCsv = async () => {
+    if (downloadingCsv) return;
+    setDownloadingCsv(true);
+    try {
+      await exportCompanyDatasetCsv(report?.symbol || sym);
+    } catch (err: any) {
+      console.error('Error downloading raw dataset CSV:', err);
+      alert(`Could not download raw dataset CSV: ${err.message}`);
+    } finally {
+      setDownloadingCsv(false);
+    }
+  };
+
   const isUpside = (report?.upside_downside_pct ?? 0) >= 0;
   const ratingBadgeClass = 
     report?.rating_stance?.includes('BUY') || report?.rating_stance?.includes('OVERWEIGHT')
@@ -222,6 +237,24 @@ export const ResearchReportsView: React.FC<ResearchReportsViewProps> = ({
             title="Refresh Preview"
           >
             <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin text-gold-400' : ''}`} />
+          </button>
+          <button
+            onClick={handleDownloadCsv}
+            disabled={downloadingCsv}
+            className="flex items-center gap-2 px-3.5 py-2.5 rounded-lg bg-navy-850 hover:bg-navy-800 text-emerald-400 hover:text-emerald-300 border border-emerald-500/30 text-sm font-semibold transition-all disabled:opacity-50 shadow-sm"
+            title="Download full 10-year annual and quarterly raw dataset in clean RFC-4180 CSV format"
+          >
+            {downloadingCsv ? (
+              <>
+                <RefreshCw className="h-4 w-4 animate-spin text-emerald-400" />
+                <span>Downloading CSV...</span>
+              </>
+            ) : (
+              <>
+                <Download className="h-4 w-4 text-emerald-400" />
+                <span>Download Raw Dataset (CSV)</span>
+              </>
+            )}
           </button>
           <button
             onClick={handleDownloadExcel}

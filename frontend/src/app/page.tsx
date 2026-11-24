@@ -220,7 +220,7 @@ function MainDashboardContent() {
               initialB="BERGEPAINT.NS"
               onSelectTicker={handleSelectTicker}
             />
-          ) : activeSection === 'financial-statements' ? (
+          ) : activeSection === 'financial-statements' || activeSection === 'financials' ? (
             /* Financial Statements Module with CSV Import */
             <FinancialStatementsView
               ticker={currentTicker}

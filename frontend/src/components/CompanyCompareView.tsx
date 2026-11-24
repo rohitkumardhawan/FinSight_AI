@@ -8,7 +8,6 @@ import {
   TrendingDown,
   Building2,
   RefreshCw,
-  Search,
   ExternalLink,
   CheckCircle2,
   Scale,
@@ -18,6 +17,7 @@ import {
   HelpCircle
 } from 'lucide-react';
 import { API_BASE } from '@/lib/api';
+import { TickerAutocomplete } from './TickerAutocomplete';
 import {
   formatFinancialValue,
   formatPerShare,
@@ -64,13 +64,6 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
   const [symbolA, setSymbolA] = useState<string>(paramA);
   const [symbolB, setSymbolB] = useState<string>(paramB);
 
-  const [searchQueryA, setSearchQueryA] = useState<string>('');
-  const [searchQueryB, setSearchQueryB] = useState<string>('');
-  const [searchResultsA, setSearchResultsA] = useState<any[]>([]);
-  const [searchResultsB, setSearchResultsB] = useState<any[]>([]);
-  const [isSearchingA, setIsSearchingA] = useState<boolean>(false);
-  const [isSearchingB, setIsSearchingB] = useState<boolean>(false);
-
   const [dataA, setDataA] = useState<CompanyMetricSummary | null>(null);
   const [dataB, setDataB] = useState<CompanyMetricSummary | null>(null);
   const [loading, setLoading] = useState<boolean>(true);
@@ -79,60 +72,6 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
   const userInitiatedRef = React.useRef<{ a: string; b: string } | null>(null);
   const requestIdRef = React.useRef<number>(0);
   const metricCacheRef = React.useRef<Map<string, CompanyMetricSummary>>(new Map());
-
-  // Search autocomplete for A
-  useEffect(() => {
-    let active = true;
-    if (!searchQueryA.trim()) {
-      setSearchResultsA([]);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      setIsSearchingA(true);
-      try {
-        const res = await fetch(`${API_BASE}/companies/search?q=${encodeURIComponent(searchQueryA)}&limit=6`);
-        if (res.ok && active) {
-          const json = await res.json();
-          setSearchResultsA(json.results || []);
-        }
-      } catch (err) {
-        console.debug('Search A error:', err);
-      } finally {
-        if (active) setIsSearchingA(false);
-      }
-    }, 250);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [searchQueryA]);
-
-  // Search autocomplete for B
-  useEffect(() => {
-    let active = true;
-    if (!searchQueryB.trim()) {
-      setSearchResultsB([]);
-      return;
-    }
-    const timer = setTimeout(async () => {
-      setIsSearchingB(true);
-      try {
-        const res = await fetch(`${API_BASE}/companies/search?q=${encodeURIComponent(searchQueryB)}&limit=6`);
-        if (res.ok && active) {
-          const json = await res.json();
-          setSearchResultsB(json.results || []);
-        }
-      } catch (err) {
-        console.debug('Search B error:', err);
-      } finally {
-        if (active) setIsSearchingB(false);
-      }
-    }, 250);
-    return () => {
-      active = false;
-      clearTimeout(timer);
-    };
-  }, [searchQueryB]);
 
   // Helper to extract and normalize metrics from analysis + DCF payloads
   const fetchCompanyMetrics = async (sym: string): Promise<CompanyMetricSummary> => {
@@ -300,8 +239,12 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
     if (dataA && dataB) {
       const oldA = dataA;
       const oldB = dataB;
+      metricCacheRef.current.set(oldA.symbol, oldA);
+      metricCacheRef.current.set(oldB.symbol, oldB);
       setDataA(oldB);
       setDataB(oldA);
+      setLoading(false);
+      setError(null);
     }
     setSymbolA(nextA);
     setSymbolB(nextB);
@@ -310,44 +253,18 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
 
   const handleSelectA = (sym: string) => {
     const clean = sym.trim().toUpperCase();
-    if (!clean) return;
+    if (!clean || clean === symbolA) return;
     userInitiatedRef.current = { a: clean, b: symbolB.toUpperCase() };
     setSymbolA(clean);
-    setSearchQueryA('');
-    setSearchResultsA([]);
     updateUrl(clean, symbolB);
   };
 
   const handleSelectB = (sym: string) => {
     const clean = sym.trim().toUpperCase();
-    if (!clean) return;
+    if (!clean || clean === symbolB) return;
     userInitiatedRef.current = { a: symbolA.toUpperCase(), b: clean };
     setSymbolB(clean);
-    setSearchQueryB('');
-    setSearchResultsB([]);
     updateUrl(symbolA, clean);
-  };
-
-  const handleKeyDownA = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (searchResultsA.length > 0) {
-        handleSelectA(searchResultsA[0].symbol);
-      } else if (searchQueryA.trim()) {
-        handleSelectA(searchQueryA);
-      }
-    }
-  };
-
-  const handleKeyDownB = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      if (searchResultsB.length > 0) {
-        handleSelectB(searchResultsB[0].symbol);
-      } else if (searchQueryB.trim()) {
-        handleSelectB(searchQueryB);
-      }
-    }
   };
 
   // Compare metric helper (returns 1 if A wins, -1 if B wins, 0 if tie/null)
@@ -393,7 +310,7 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
   return (
     <div className="space-y-6">
       {/* 1. TOP HEADER & EQUITIES SELECTOR */}
-      <div className="bg-navy-900 border border-navy-800 rounded-2xl p-5 sm:p-6 shadow-xl relative overflow-hidden">
+      <div className="bg-navy-900 border border-navy-800 rounded-2xl p-5 sm:p-6 shadow-xl relative">
         <div className="flex flex-col lg:flex-row lg:items-center justify-between gap-4 pb-4 border-b border-navy-800">
           <div>
             <div className="flex items-center gap-2">
@@ -424,47 +341,17 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
 
         {/* Dynamic Selector Bar with Autocomplete */}
         <div className="grid grid-cols-1 md:grid-cols-11 gap-3 items-center mt-5">
-          {/* Company A Search */}
+          {/* Company A Autocomplete */}
           <div className="md:col-span-5 relative">
-            <label className="text-[11px] text-slate-400 font-medium mb-1 block">
-              Company A (Primary)
-            </label>
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
-              <input
-                type="text"
-                value={searchQueryA}
-                onChange={(e) => setSearchQueryA(e.target.value)}
-                onKeyDown={handleKeyDownA}
-                placeholder={`Search or change (${symbolA})...`}
-                className="w-full bg-navy-950 border border-navy-750 focus:border-gold-500/50 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-colors"
-              />
-              {isSearchingA && (
-                <RefreshCw className="absolute right-3 top-2.5 h-3.5 w-3.5 animate-spin text-gold-400" />
-              )}
-            </div>
-
-            {/* Dropdown A */}
-            {searchResultsA.length > 0 && (
-              <div className="absolute left-0 right-0 top-full mt-1.5 bg-navy-950 border border-navy-700 rounded-xl shadow-2xl z-30 overflow-hidden divide-y divide-navy-800">
-                {searchResultsA.map((item: any) => (
-                  <button
-                    key={item.symbol}
-                    type="button"
-                    onClick={() => handleSelectA(item.symbol)}
-                    className="w-full text-left px-3.5 py-2 hover:bg-navy-850 flex items-center justify-between text-xs transition-colors"
-                  >
-                    <div>
-                      <div className="font-semibold text-white">{item.company_name}</div>
-                      <div className="text-[10px] text-gold-400 font-mono">{item.symbol}</div>
-                    </div>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-navy-800 text-slate-300">
-                      {item.exchange || 'NSE'}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
+            <TickerAutocomplete
+              label="Company A (Primary)"
+              sublabel="Primary Subject"
+              selectedTicker={symbolA}
+              selectedName={dataA?.name}
+              placeholder="Search Primary (e.g. ASIANPAINT, HDFC, TATA)..."
+              onSelect={(comp) => handleSelectA(comp.symbol)}
+              disabled={loading}
+            />
           </div>
 
           {/* Swap Button */}
@@ -472,54 +359,25 @@ export const CompanyCompareView: React.FC<CompanyCompareViewProps> = ({
             <button
               type="button"
               onClick={handleSwap}
-              className="p-2.5 rounded-xl bg-navy-950 hover:bg-navy-800 border border-navy-750 hover:border-gold-500/40 text-gold-400 transition-all shadow-sm active:scale-95"
+              disabled={loading}
+              className="p-2.5 rounded-xl bg-navy-950 hover:bg-navy-800 border border-navy-750 hover:border-gold-500/40 text-gold-400 transition-all shadow-sm active:scale-95 disabled:opacity-50"
               title="Swap Company A and B"
             >
               <ArrowLeftRight className="h-4 w-4" />
             </button>
           </div>
 
-          {/* Company B Search */}
+          {/* Company B Autocomplete */}
           <div className="md:col-span-5 relative">
-            <label className="text-[11px] text-slate-400 font-medium mb-1 block">
-              Company B (Benchmark)
-            </label>
-            <div className="relative">
-              <Search className="absolute left-3 top-2.5 h-4 w-4 text-slate-500" />
-              <input
-                type="text"
-                value={searchQueryB}
-                onChange={(e) => setSearchQueryB(e.target.value)}
-                onKeyDown={handleKeyDownB}
-                placeholder={`Search or change (${symbolB})...`}
-                className="w-full bg-navy-950 border border-navy-750 focus:border-gold-500/50 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-colors"
-              />
-              {isSearchingB && (
-                <RefreshCw className="absolute right-3 top-2.5 h-3.5 w-3.5 animate-spin text-gold-400" />
-              )}
-            </div>
-
-            {/* Dropdown B */}
-            {searchResultsB.length > 0 && (
-              <div className="absolute left-0 right-0 top-full mt-1.5 bg-navy-950 border border-navy-700 rounded-xl shadow-2xl z-30 overflow-hidden divide-y divide-navy-800">
-                {searchResultsB.map((item: any) => (
-                  <button
-                    key={item.symbol}
-                    type="button"
-                    onClick={() => handleSelectB(item.symbol)}
-                    className="w-full text-left px-3.5 py-2 hover:bg-navy-850 flex items-center justify-between text-xs transition-colors"
-                  >
-                    <div>
-                      <div className="font-semibold text-white">{item.company_name}</div>
-                      <div className="text-[10px] text-gold-400 font-mono">{item.symbol}</div>
-                    </div>
-                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-navy-800 text-slate-300">
-                      {item.exchange || 'NSE'}
-                    </span>
-                  </button>
-                ))}
-              </div>
-            )}
+            <TickerAutocomplete
+              label="Company B (Benchmark)"
+              sublabel="Peer Benchmark"
+              selectedTicker={symbolB}
+              selectedName={dataB?.name}
+              placeholder="Search Benchmark (e.g. BERGEPAINT, ICICI, MARUTI)..."
+              onSelect={(comp) => handleSelectB(comp.symbol)}
+              disabled={loading}
+            />
           </div>
         </div>
       </div>

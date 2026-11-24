@@ -26,6 +26,7 @@ from app.services.dcf_engine import calculate_dcf, DCFRequest, DCFResponse
 from app.services.risk_engine import calculate_risk_intelligence, RiskIntelligenceResponse
 from app.services.report_generator import generate_pdf_report, get_report_preview_data
 from app.services.excel_exporter import generate_financial_model_xlsx
+from app.services.csv_exporter import generate_company_dataset_csv
 from app.services.peer_engine import get_sector_peers
 from app.services.news_engine import get_company_news
 
@@ -857,6 +858,56 @@ def export_company_financial_model_xlsx(
     return StreamingResponse(
         excel_buf,
         media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={
+            "Content-Disposition": f'attachment; filename="{filename}"',
+            "Cache-Control": "no-cache"
+        }
+    )
+
+
+@router.get("/{symbol}/export/excel")
+@limiter.limit("10/minute")
+def export_company_financial_model_excel_alias(
+    request: Request,
+    symbol: str,
+    fcf_growth: Optional[float] = Query(None, description="Projected annual FCF growth rate override (e.g. 0.10 or 10.0)"),
+    wacc: Optional[float] = Query(None, description="WACC override (e.g. 0.115 or 11.5)"),
+    terminal_growth: Optional[float] = Query(None, description="Terminal growth rate override (e.g. 0.04 or 4.0)"),
+    projection_years: Optional[int] = Query(5, ge=5, le=10, description="Projection horizon in years (5 to 10)"),
+    db: Session = Depends(get_db)
+):
+    """Alias for /export/xlsx exporting 11-tab Wall Street Financial Model (.xlsx)."""
+    return export_company_financial_model_xlsx(
+        request=request,
+        symbol=symbol,
+        fcf_growth=fcf_growth,
+        wacc=wacc,
+        terminal_growth=terminal_growth,
+        projection_years=projection_years,
+        db=db
+    )
+
+
+@router.get("/{symbol}/export/csv")
+@limiter.limit("20/minute")
+def export_company_dataset_csv(
+    request: Request,
+    symbol: str,
+    db: Session = Depends(get_db)
+):
+    """
+    Exports a clean, RFC-4180 raw financial dataset (.csv) containing all
+    historical annual (FY2017-FY2026) and quarterly periods across
+    Income Statement, Balance Sheet, Cash Flow, and Key Ratios.
+    """
+    company, periods = _resolve_company_and_periods(symbol, db)
+    csv_buf = generate_company_dataset_csv(company=company, periods=periods)
+    clean_sym = company.symbol or symbol
+    filename = f"FinSight_{clean_sym}_10Y_Dataset.csv"
+
+    return StreamingResponse(
+        csv_buf,
+        media_type="text/csv",
         headers={
             "Content-Disposition": f'attachment; filename="{filename}"',
             "Cache-Control": "no-cache"

@@ -138,9 +138,21 @@ def test_gate5_xlsx_export_integrity():
     assert r.headers["content-type"].startswith("application/vnd.openxmlformats-officedocument")
 
     wb = openpyxl.load_workbook(io.BytesIO(r.content))
-    expected = ["Executive Summary", "3-Statement Financials", "Ratios & Peers", "DCF Valuation"]
+    expected = [
+        "Executive Summary",
+        "Data Sheet",
+        "HistoricalFS",
+        "Common Size",
+        "Ratio Analysis",
+        "Assumptions",
+        "Forecast",
+        "WACC",
+        "Intrinsic Growth",
+        "DCF",
+        "Comps_Val"
+    ]
     for s in expected:
-        assert s in wb.sheetnames
+        assert s in wb.sheetnames, f"Missing sheet: {s}"
 
     # Check for live formulas
     has_formula = any(

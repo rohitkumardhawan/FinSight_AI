@@ -17,7 +17,7 @@ import {
 import { CsvImportModal } from './CsvImportModal';
 import { PeriodFilterBar, EmptyPeriodSelectionFallback, ALL_YEARS, extractYear, isAnnualPeriod } from './PeriodFilterBar';
 import { API_BASE } from '@/lib/api';
-import { exportCompanyExcelModel } from '@/lib/exportExcel';
+import { exportCompanyExcelModel, exportCompanyDatasetCsv } from '@/lib/exportExcel';
 import { 
   formatFinancialValue, 
   formatAccountingValue,
@@ -57,6 +57,7 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
   });
   const [loading, setLoading] = useState<boolean>(false);
   const [downloadingExcel, setDownloadingExcel] = useState<boolean>(false);
+  const [downloadingCsv, setDownloadingCsv] = useState<boolean>(false);
   const [isCsvModalOpen, setIsCsvModalOpen] = useState<boolean>(false);
   const [dataSourceNotice, setDataSourceNotice] = useState<string>('Connecting to Neon DB...');
 
@@ -638,6 +639,21 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
     }
   };
 
+  // 1-Click Raw Dataset CSV Export (10Y Annual + Quarterly)
+  const handleDownloadDatasetCsv = async () => {
+    if (downloadingCsv) return;
+    setDownloadingCsv(true);
+    try {
+      const sym = companyInfo.symbol || ticker || 'ASIANPAINT.NS';
+      await exportCompanyDatasetCsv(sym);
+    } catch (err: any) {
+      console.error('Error exporting raw dataset CSV:', err);
+      alert(`Could not export raw dataset CSV: ${err.message}`);
+    } finally {
+      setDownloadingCsv(false);
+    }
+  };
+
   // Calculate YoY growth between periods
   const calculateGrowth = (current?: number | null, prev?: number | null) => {
     if (current == null || prev == null || prev === 0) return null;
@@ -828,16 +844,25 @@ export const FinancialStatementsView: React.FC<FinancialStatementsViewProps> = (
             <span>Refresh</span>
           </button>
 
-          {/* One-Click Export to CSV */}
+          {/* 1-Click Working Raw Dataset Download (CSV) */}
           <button
             type="button"
-            onClick={handleExportCsv}
-            disabled={filteredPeriods.length === 0}
-            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 border border-emerald-500/40 hover:border-emerald-400 text-xs font-semibold text-emerald-400 transition-colors shadow-sm disabled:opacity-50"
-            title="Export normalized financial statements to sanitized CSV"
+            onClick={handleDownloadDatasetCsv}
+            disabled={downloadingCsv}
+            className="flex items-center gap-1.5 px-3.5 py-2 rounded-xl bg-navy-900 hover:bg-navy-800 border border-emerald-500/40 hover:border-emerald-400 text-xs font-semibold text-emerald-400 hover:text-emerald-300 transition-colors shadow-sm disabled:opacity-50"
+            title="Download full 10-year annual and quarterly raw dataset in clean RFC-4180 CSV format"
           >
-            <Download className="h-3.5 w-3.5" />
-            <span>Export CSV</span>
+            {downloadingCsv ? (
+              <>
+                <RefreshCw className="h-3.5 w-3.5 animate-spin text-emerald-400" />
+                <span>Downloading CSV...</span>
+              </>
+            ) : (
+              <>
+                <Download className="h-3.5 w-3.5 text-emerald-400" />
+                <span>Download Raw Dataset (CSV)</span>
+              </>
+            )}
           </button>
 
           {/* 1-Click Institutional Excel Financial Model Export */}

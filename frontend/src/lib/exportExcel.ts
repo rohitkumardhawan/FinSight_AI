@@ -50,3 +50,28 @@ export async function exportCompanyExcelModel(
   window.URL.revokeObjectURL(downloadUrl);
   document.body.removeChild(a);
 }
+
+/**
+ * Downloads a raw 10-year + quarterly financial dataset CSV.
+ * Streams directly from GET /api/companies/{symbol}/export/csv.
+ */
+export async function exportCompanyDatasetCsv(symbol: string): Promise<void> {
+  const cleanSym = symbol.trim().toUpperCase();
+  const url = `${API_BASE}/companies/${encodeURIComponent(cleanSym)}/export/csv`;
+
+  const res = await fetch(url);
+  if (!res.ok) {
+    const errorText = await res.text().catch(() => '');
+    throw new Error(`CSV export failed (HTTP ${res.status}): ${errorText || 'Server Error'}`);
+  }
+
+  const blob = await res.blob();
+  const downloadUrl = window.URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = downloadUrl;
+  a.download = `FinSight_${cleanSym}_10Y_Dataset.csv`;
+  document.body.appendChild(a);
+  a.click();
+  window.URL.revokeObjectURL(downloadUrl);
+  document.body.removeChild(a);
+}
